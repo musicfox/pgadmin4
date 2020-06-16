@@ -24,10 +24,6 @@ from pgadmin.browser.server_groups.servers.databases.schemas.tables.\
     constraints.index_constraint import utils as idxcons_utils
 from pgadmin.utils.driver import get_driver
 from config import PG_DEFAULT_DRIVER
-from pgadmin.utils import IS_PY2
-# If we are in Python3
-if not IS_PY2:
-    unicode = str
 
 
 class IndexConstraintModule(ConstraintTypeModule):
@@ -54,8 +50,8 @@ class IndexConstraintModule(ConstraintTypeModule):
         initialized.
     """
 
-    NODE_TYPE = 'Index constraint'
-    COLLECTION_LABEL = _('index_constraint')
+    NODE_TYPE = 'index_constraint'
+    COLLECTION_LABEL = _('Index constraint')
 
     def __init__(self, *args, **kwargs):
         """
@@ -245,6 +241,10 @@ class IndexConstraintView(PGChildNodeView):
                 kwargs['sid']
             )
             self.conn = self.manager.connection(did=kwargs['did'])
+            self.datlastsysoid = \
+                self.manager.db_info[kwargs['did']]['datlastsysoid'] \
+                if self.manager.db_info is not None and \
+                kwargs['did'] in self.manager.db_info else 0
             self.template_path = 'index_constraint/sql/#{0}#'\
                 .format(self.manager.version)
 
@@ -287,13 +287,16 @@ class IndexConstraintView(PGChildNodeView):
             return res
 
         if len(res) == 0:
-            return gone(_("""Could not find the {} in the table.""".format(
-                "primary key" if self.constraint_type == "p" else "unique key"
-            )))
+            return gone(_("""Could not find the {} in the table.""").format(
+                _("primary key") if self.constraint_type == "p"
+                else _("unique key")
+            ))
 
         result = res
         if cid:
             result = res[0]
+        result['is_sys_obj'] = (
+            result['oid'] <= self.datlastsysoid)
 
         return ajax_response(
             response=result,
@@ -358,6 +361,9 @@ class IndexConstraintView(PGChildNodeView):
                               constraint_type=self.constraint_type)
         status, res = self.conn.execute_dict(SQL)
 
+        for row in res['rows']:
+            row['_type'] = self.node_type
+
         return res['rows']
 
     @check_precondition
@@ -386,9 +392,10 @@ class IndexConstraintView(PGChildNodeView):
             return internal_server_error(errormsg=rset)
 
         if len(rset['rows']) == 0:
-            return gone(_("""Could not find the {} in the table.""".format(
-                "primary key" if self.constraint_type == "p" else "unique key"
-            )))
+            return gone(_("""Could not find the {} in the table.""").format(
+                _("primary key") if self.constraint_type == "p"
+                else _("unique key")
+            ))
 
         res = self.blueprint.generate_browser_node(
             rset['rows'][0]['oid'],
@@ -533,8 +540,7 @@ class IndexConstraintView(PGChildNodeView):
                         success=0,
                         errormsg=_(
                             "Could not find at least one required "
-                            "parameter (%s)." % str(param)
-                        )
+                            "parameter ({}).".format(str(param)))
                     )
 
             elif arg not in data:
@@ -542,8 +548,8 @@ class IndexConstraintView(PGChildNodeView):
                     status=400,
                     success=0,
                     errormsg=_(
-                        "Could not find the required parameter (%s)." % arg
-                    )
+                        "Could not find the required parameter ({})."
+                    ).format(arg)
                 )
 
         data['schema'] = self.schema
@@ -641,7 +647,7 @@ class IndexConstraintView(PGChildNodeView):
             data['table'] = self.table
             sql, name = idxcons_utils.get_sql(self.conn, data, did, tid,
                                               self.constraint_type, cid)
-            if not isinstance(sql, (str, unicode)):
+            if not isinstance(sql, str):
                 return sql
             sql = sql.strip('\n').strip(' ')
 
@@ -736,7 +742,7 @@ class IndexConstraintView(PGChildNodeView):
 
             return make_json_response(
                 success=1,
-                info=_("{0} dropped.".format(self.node_label)),
+                info=_("{0} dropped.").format(self.node_label),
                 data={
                     'id': cid,
                     'sid': sid,
@@ -782,7 +788,7 @@ class IndexConstraintView(PGChildNodeView):
         try:
             sql, name = idxcons_utils.get_sql(self.conn, data, did, tid,
                                               self.constraint_type, cid)
-            if not isinstance(sql, (str, unicode)):
+            if not isinstance(sql, str):
                 return sql
             sql = sql.strip('\n').strip(' ')
             if sql == '':
@@ -824,9 +830,10 @@ class IndexConstraintView(PGChildNodeView):
         if not status:
             return internal_server_error(errormsg=res)
         if len(res['rows']) == 0:
-            return gone(_("""Could not find the {} in the table.""".format(
-                "primary key" if self.constraint_type == "p" else "unique key"
-            )))
+            return gone(_("""Could not find the {} in the table.""").format(
+                _("primary key") if self.constraint_type == "p"
+                else _("unique key")
+            ))
 
         data = res['rows'][0]
         data['schema'] = self.schema
@@ -916,10 +923,10 @@ class IndexConstraintView(PGChildNodeView):
                 return internal_server_error(errormsg=res)
             if len(res['rows']) == 0:
                 return gone(
-                    _("""Could not find the {} in the table.""".format(
-                        "primary key" if self.constraint_type == "p"
-                        else "unique key"
-                    ))
+                    _("""Could not find the {} in the table.""").format(
+                        _("primary key") if self.constraint_type == "p"
+                        else _("unique key")
+                    )
                 )
 
             result = res['rows'][0]

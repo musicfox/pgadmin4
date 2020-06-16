@@ -175,8 +175,9 @@ class DatabaseView(PGChildNodeView):
                     kwargs['sid']
                 )
                 if self.manager is None:
-                    return gone(errormsg="Could not find the server.")
+                    return gone(errormsg=_("Could not find the server."))
 
+                self.datlastsysoid = 0
                 if action and action in ["drop"]:
                     self.conn = self.manager.connection()
                 elif 'did' in kwargs:
@@ -186,6 +187,7 @@ class DatabaseView(PGChildNodeView):
                     # provide generic connection
                     if kwargs['did'] in self.manager.db_info:
                         self._db = self.manager.db_info[kwargs['did']]
+                        self.datlastsysoid = self._db['datlastsysoid']
                         if self._db['datallowconn'] is False:
                             self.conn = self.manager.connection()
                             self.db_allow_connection = False
@@ -228,11 +230,9 @@ class DatabaseView(PGChildNodeView):
 
         for row in res['rows']:
             if self.manager.db == row['name']:
-                connected = True
                 row['canDrop'] = False
             else:
                 conn = self.manager.connection(row['name'], did=row['did'])
-                connected = conn.connected()
                 row['canDrop'] = True
 
         return ajax_response(
@@ -414,6 +414,8 @@ class DatabaseView(PGChildNodeView):
         res = self.formatdbacl(res, defaclres['rows'])
 
         result = res['rows'][0]
+        result['is_sys_obj'] = (
+            result['oid'] <= self.datlastsysoid)
         # Fetching variable for database
         SQL = render_template(
             "/".join([self.template_path, 'get_variables.sql']),
@@ -452,30 +454,33 @@ class DatabaseView(PGChildNodeView):
         from pgadmin.utils.driver import get_driver
         manager = get_driver(PG_DEFAULT_DRIVER).connection_manager(sid)
         conn = manager.connection(did=did, auto_reconnect=True)
-        status, errmsg = conn.connect()
-
-        if not status:
-            current_app.logger.error(
-                "Could not connected to database(#{0}).\nError: {1}".format(
-                    did, errmsg
+        already_connected = conn.connected()
+        if not already_connected:
+            status, errmsg = conn.connect()
+            if not status:
+                current_app.logger.error(
+                    "Could not connected to database(#{0}).\nError: {1}"
+                    .format(
+                        did, errmsg
+                    )
                 )
-            )
-
-            return internal_server_error(errmsg)
-        else:
-            current_app.logger.info('Connection Established for Database Id: \
-                %s' % (did))
-
-            return make_json_response(
-                success=1,
-                info=_("Database connected."),
-                data={
-                    'icon': 'pg-icon-database',
-                    'connected': True,
-                    'info_prefix': '{0}/{1}'.
-                    format(Server.query.filter_by(id=sid)[0].name, conn.db)
-                }
-            )
+                return internal_server_error(errmsg)
+            else:
+                current_app.logger.info(
+                    'Connection Established for Database Id: \
+                    %s' % (did)
+                )
+        return make_json_response(
+            success=1,
+            info=_("Database connected."),
+            data={
+                'icon': 'pg-icon-database',
+                'already_connected': already_connected,
+                'connected': True,
+                'info_prefix': '{0}/{1}'.
+                format(Server.query.filter_by(id=sid)[0].name, conn.db)
+            }
+        )
 
     def disconnect(self, gid, sid, did):
         """Disconnect the database."""
@@ -567,8 +572,8 @@ class DatabaseView(PGChildNodeView):
                     status=410,
                     success=0,
                     errormsg=_(
-                        "Could not find the required parameter (%s)." % arg
-                    )
+                        "Could not find the required parameter ({})."
+                    ).format(arg)
                 )
         # The below SQL will execute CREATE DDL only
         SQL = render_template(

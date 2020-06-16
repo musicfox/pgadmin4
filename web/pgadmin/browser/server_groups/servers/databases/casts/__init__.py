@@ -21,10 +21,6 @@ from pgadmin.utils.ajax import make_json_response, internal_server_error, \
     make_response as ajax_response, gone
 from pgadmin.utils.driver import get_driver
 from config import PG_DEFAULT_DRIVER
-from pgadmin.utils import IS_PY2
-# If we are in Python3
-if not IS_PY2:
-    unicode = str
 
 
 class CastModule(CollectionNodeModule):
@@ -50,7 +46,7 @@ class CastModule(CollectionNodeModule):
     """
 
     NODE_TYPE = 'cast'
-    COLLECTION_LABEL = 'Casts'
+    COLLECTION_LABEL = gettext('Casts')
 
     def __init__(self, *args, **kwargs):
         super(CastModule, self).__init__(*args, **kwargs)
@@ -368,8 +364,8 @@ class CastView(PGChildNodeView):
                     status=410,
                     success=0,
                     errormsg=gettext(
-                        "Could not find the required parameter (%s)." % arg
-                    )
+                        "Could not find the required parameter ({})."
+                    ).format(arg)
                 )
         try:
             sql = render_template("/".join([self.template_path, 'create.sql']),
@@ -424,7 +420,7 @@ class CastView(PGChildNodeView):
         try:
             sql, name = self.get_sql(gid, sid, did, data, cid)
             # Most probably this is due to error
-            if not isinstance(sql, (str, unicode)):
+            if not isinstance(sql, str):
                 return sql
             status, res = self.conn.execute_scalar(sql)
             if not status:
@@ -521,7 +517,7 @@ class CastView(PGChildNodeView):
         data = request.args
         sql, name = self.get_sql(gid, sid, did, data, cid)
         # Most probably this is due to error
-        if not isinstance(sql, (str, unicode)):
+        if not isinstance(sql, str):
             return sql
         sql = sql.strip('\n').strip(' ')
         if sql == '':
@@ -560,7 +556,7 @@ class CastView(PGChildNodeView):
 
             if len(res['rows']) == 0:
                 return gone(
-                    _("Could not find the specified cast on the server.")
+                    gettext("Could not find the specified cast on the server.")
                 )
 
             old_data = res['rows'][0]
@@ -662,16 +658,15 @@ class CastView(PGChildNodeView):
             )
             status, res = self.conn.execute_scalar(sql)
             if not status:
-                return internal_server_error(
-                    _("Could not generate reversed engineered SQL for the "
-                      "cast.\n\n{0}").format(res)
-                )
+                return internal_server_error(gettext(
+                    "Could not generate reversed engineered SQL for the cast."
+                ) + "\n\n{0}".format(res))
 
             if res is None:
-                return gone(
-                    _("Could not generate reversed engineered SQL for the "
-                      "cast node.\n")
-                )
+                return gone(gettext(
+                    "Could not generate reversed engineered SQL for the "
+                    "cast node."
+                ))
 
             return ajax_response(response=res)
 

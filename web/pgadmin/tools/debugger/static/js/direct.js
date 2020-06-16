@@ -1047,7 +1047,7 @@ define([
 
         // Initialize a new Grid instance
         var stack_grid = this.stack_grid = new Backgrid.Grid({
-          emptyText: 'No data found',
+          emptyText: gettext('No data found'),
           columns: stackGridCols,
           row: Backgrid.Row.extend({
             events: {
@@ -1112,7 +1112,7 @@ define([
 
         // Initialize a new Grid instance
         var result_grid = this.result_grid = new Backgrid.Grid({
-          emptyText: 'No data found',
+          emptyText: gettext('No data found'),
           columns: resultGridCols,
           collection: new ResultsCollection(result),
           className: 'backgrid table table-bordered table-noouter-border table-bottom-border',
@@ -1190,7 +1190,7 @@ define([
 
         // Initialize a new Grid instance
         var variable_grid = this.variable_grid = new Backgrid.Grid({
-          emptyText: 'No data found',
+          emptyText: gettext('No data found'),
           columns: gridCols,
           collection: new VariablesCollection(my_obj),
           className: 'backgrid table table-bordered table-noouter-border table-bottom-border',
@@ -1276,7 +1276,7 @@ define([
 
         // Initialize a new Grid instance
         var param_grid = this.param_grid = new Backgrid.Grid({
-          emptyText: 'No data found',
+          emptyText: gettext('No data found'),
           columns: paramGridCols,
           collection: new ParametersCollection(param_obj),
           className: 'backgrid table table-bordered table-noouter-border table-bottom-border',
@@ -1726,12 +1726,13 @@ define([
           // Create the messages panel to display the message returned from the database server
           var messages = new pgAdmin.Browser.Panel({
             name: 'messages',
-            title: gettext('Messages'),
+            title:
+            gettext('Messages'),
             width: '100%',
             height: '100%',
             isCloseable: false,
             isPrivate: true,
-            content: '<div id="messages" class="messages" tabindex="0"></div>',
+            content: '<div role="status" id="messages" class="messages" tabindex="0"></div>',
           });
 
           // Create the result panel to display the result after debugging the function
@@ -1805,6 +1806,7 @@ define([
           lineWrapping: pgAdmin.Browser.editor_options.wrapCode,
           autoCloseBrackets: pgAdmin.Browser.editor_options.insert_pair_brackets,
           matchBrackets: pgAdmin.Browser.editor_options.brace_matching,
+          screenReaderLabel: gettext('Debugger SQL editor'),
         });
 
       // Useful for keyboard navigation, when user presses escape key we will
@@ -1894,7 +1896,7 @@ define([
 
       /* Register to log the activity */
       pgBrowser.register_to_activity_listener(document, ()=>{
-        Alertify.alert(gettext('Timeout'), gettext('Your session has timed out due to inactivity. Kindly close the window and login again.'));
+        Alertify.alert(gettext('Timeout'), gettext('Your session has timed out due to inactivity. Please close the window and login again.'));
       });
 
       controller.poll_result = pgBrowser.override_activity_event_decorator(controller.poll_result).bind(controller);
@@ -1908,33 +1910,33 @@ define([
 
       /* Update the shortcuts of the buttons */
       self.toolbarView.$el.find('#btn-step-into')
-        .attr('title', keyboardShortcuts.shortcut_accesskey_title('Step into',self.preferences.btn_step_into))
-        .attr('aria-label', keyboardShortcuts.shortcut_accesskey_title('Step into',self.preferences.btn_step_into))
+        .attr('title', keyboardShortcuts.shortcut_accesskey_title(gettext('Step into'),self.preferences.btn_step_into))
+        .attr('aria-label', keyboardShortcuts.shortcut_accesskey_title(gettext('Step into'),self.preferences.btn_step_into))
         .attr('accesskey', keyboardShortcuts.shortcut_key(self.preferences.btn_step_into));
 
       self.toolbarView.$el.find('#btn-step-over')
-        .attr('title', keyboardShortcuts.shortcut_accesskey_title('Step over',self.preferences.btn_step_over))
-        .attr('aria-label', keyboardShortcuts.shortcut_accesskey_title('Step over',self.preferences.btn_step_over))
+        .attr('title', keyboardShortcuts.shortcut_accesskey_title(gettext('Step over'),self.preferences.btn_step_over))
+        .attr('aria-label', keyboardShortcuts.shortcut_accesskey_title(gettext('Step over'),self.preferences.btn_step_over))
         .attr('accesskey', keyboardShortcuts.shortcut_key(self.preferences.btn_step_over));
 
       self.toolbarView.$el.find('#btn-continue')
-        .attr('title', keyboardShortcuts.shortcut_accesskey_title('Continue/Start',self.preferences.btn_start))
-        .attr('aria-label', keyboardShortcuts.shortcut_accesskey_title('Continue/Start',self.preferences.btn_start))
+        .attr('title', keyboardShortcuts.shortcut_accesskey_title(gettext('Continue/Start'),self.preferences.btn_start))
+        .attr('aria-label', keyboardShortcuts.shortcut_accesskey_title(gettext('Continue/Start'),self.preferences.btn_start))
         .attr('accesskey', keyboardShortcuts.shortcut_key(self.preferences.btn_start));
 
       self.toolbarView.$el.find('#btn-toggle-breakpoint')
-        .attr('title', keyboardShortcuts.shortcut_accesskey_title('Toggle breakpoint',self.preferences.btn_toggle_breakpoint))
-        .attr('aria-label', keyboardShortcuts.shortcut_accesskey_title('Toggle breakpoint',self.preferences.btn_toggle_breakpoint))
+        .attr('title', keyboardShortcuts.shortcut_accesskey_title(gettext('Toggle breakpoint'),self.preferences.btn_toggle_breakpoint))
+        .attr('aria-label', keyboardShortcuts.shortcut_accesskey_title(gettext('Toggle breakpoint'),self.preferences.btn_toggle_breakpoint))
         .attr('accesskey', keyboardShortcuts.shortcut_key(self.preferences.btn_toggle_breakpoint));
 
       self.toolbarView.$el.find('#btn-clear-breakpoint')
-        .attr('title', keyboardShortcuts.shortcut_accesskey_title('Clear all breakpoints',self.preferences.btn_clear_breakpoints))
-        .attr('aria-label', keyboardShortcuts.shortcut_accesskey_title('Clear all breakpoints',self.preferences.btn_clear_breakpoints))
+        .attr('title', keyboardShortcuts.shortcut_accesskey_title(gettext('Clear all breakpoints'),self.preferences.btn_clear_breakpoints))
+        .attr('aria-label', keyboardShortcuts.shortcut_accesskey_title(gettext('Clear all breakpoints'),self.preferences.btn_clear_breakpoints))
         .attr('accesskey', keyboardShortcuts.shortcut_key(self.preferences.btn_clear_breakpoints));
 
       self.toolbarView.$el.find('#btn-stop')
-        .attr('title', keyboardShortcuts.shortcut_accesskey_title('Stop',self.preferences.btn_stop))
-        .attr('aria-label', keyboardShortcuts.shortcut_accesskey_title('Stop',self.preferences.btn_stop))
+        .attr('title', keyboardShortcuts.shortcut_accesskey_title(gettext('Stop'),self.preferences.btn_stop))
+        .attr('aria-label', keyboardShortcuts.shortcut_accesskey_title(gettext('Stop'),self.preferences.btn_stop))
         .attr('accesskey', keyboardShortcuts.shortcut_key(self.preferences.btn_stop));
     },
     // Register the panel with new debugger docker instance.

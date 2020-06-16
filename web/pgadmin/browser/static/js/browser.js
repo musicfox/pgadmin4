@@ -58,7 +58,7 @@ define('pgadmin.browser', [
     var data = JSON.parse(payload).data;
     if (data.length && data[0]._type !== 'column' &&
       data[0]._type !== 'catalog_object_column') {
-      data = data.sort(function(a, b) {
+      data.sort(function(a, b) {
         return pgAdmin.natural_sort(a.label, b.label);
       });
     }
@@ -98,6 +98,7 @@ define('pgadmin.browser', [
         },
         animateRoot: true,
         unanimated: false,
+        fullRow: true,
       });
 
       b.tree = $('#tree').aciTree('api');
@@ -201,7 +202,7 @@ define('pgadmin.browser', [
         isCloseable: false,
         isPrivate: true,
         elContainer: true,
-        content: '<div class="obj_properties container-fluid"><div class="alert alert-info pg-panel-message">' + select_object_msg + '</div></div>',
+        content: '<div class="obj_properties container-fluid"><div role="status" class="pg-panel-message">' + select_object_msg + '</div></div>',
         events: panelEvents,
         onCreate: function(myPanel, $container) {
           $container.addClass('pg-no-overflow');
@@ -215,7 +216,7 @@ define('pgadmin.browser', [
         width: 500,
         isCloseable: false,
         isPrivate: true,
-        content: '<div class="negative-space p-2"><div class="alert alert-info pg-panel-message pg-panel-statistics-message">' + select_object_msg + '</div><div class="pg-panel-statistics-container d-none"></div></div>',
+        content: '<div class="negative-space p-2"><div role="status" class="pg-panel-message pg-panel-statistics-message">' + select_object_msg + '</div><div class="pg-panel-statistics-container d-none"></div></div>',
         events: panelEvents,
       }),
       // Reversed engineered SQL for the object
@@ -226,7 +227,7 @@ define('pgadmin.browser', [
         width: 500,
         isCloseable: false,
         isPrivate: true,
-        content: '<div class="sql_textarea"><textarea id="sql-textarea" name="sql-textarea" title="'+gettext('SQL Code')+'"></textarea></div>',
+        content: '<label for="sql-textarea" class="sr-only">' + gettext('SQL Code') + '</label><div class="sql_textarea"><textarea id="sql-textarea" name="sql-textarea" title="' + gettext('SQL Code') + '"></textarea></div>',
       }),
       // Dependencies of the object
       'dependencies': new pgAdmin.Browser.Panel({
@@ -236,7 +237,7 @@ define('pgadmin.browser', [
         width: 500,
         isCloseable: false,
         isPrivate: true,
-        content: '<div class="negative-space p-2"><div class="alert alert-info pg-panel-message pg-panel-depends-message">' + select_object_msg + '</div><div class="pg-panel-dependencies-container d-none"></div></div>',
+        content: '<div class="negative-space p-2"><div role="status" class="pg-panel-message pg-panel-depends-message">' + select_object_msg + '</div><div class="pg-panel-dependencies-container d-none"></div></div>',
         events: panelEvents,
       }),
       // Dependents of the object
@@ -247,7 +248,7 @@ define('pgadmin.browser', [
         width: 500,
         isCloseable: false,
         isPrivate: true,
-        content: '<div class="negative-space p-2"><div class="alert alert-info pg-panel-message pg-panel-depends-message">' + select_object_msg + '</div><div class="pg-panel-dependents-container d-none"></div></div>',
+        content: '<div class="negative-space p-2"><div role="status" class="pg-panel-message pg-panel-depends-message">' + select_object_msg + '</div><div class="pg-panel-dependents-container d-none"></div></div>',
         events: panelEvents,
       }),
     },
@@ -372,7 +373,7 @@ define('pgadmin.browser', [
         // Create a dummy 'no object seleted' menu
         var create_submenu = pgAdmin.Browser.MenuGroup(
           obj.menu_categories['create'], [{
-            $el: $('<li><a class="dropdown-item disabled" href="#">' + gettext('No object selected') + '</a></li>'),
+            $el: $('<li><a class="dropdown-item disabled" href="#" role="menuitem">' + gettext('No object selected') + '</a></li>'),
             priority: 1,
             category: 'create',
             update: function() {},
@@ -427,6 +428,7 @@ define('pgadmin.browser', [
           mode: 'text/x-pgsql',
           readOnly: true,
           extraKeys: pgAdmin.Browser.editor_shortcut_keys,
+          screenReaderLabel: gettext('SQL'),
         });
       /* Cache may take time to load for the first time
        * Reflect the changes once cache is available
@@ -623,7 +625,7 @@ define('pgadmin.browser', [
 
                 Alertify.confirm(gettext('Reset Master Password'),
                   gettext('This will remove all the saved passwords. This will also remove established connections to '
-                    + 'the server and you may need to reconnect again. Do you wish to continue ?'),
+                    + 'the server and you may need to reconnect again. Do you wish to continue?'),
                   function() {
                     /* If user clicks Yes */
                     self.reset_master_password();
@@ -859,7 +861,7 @@ define('pgadmin.browser', [
           baseUrl = pgBrowser.utils.edbas_help_path;
         }
 
-        var fullUrl = help.getHelpUrl(baseUrl, url, server.version);
+        var fullUrl = help.getHelpUrl(baseUrl, url, server.version, server.server_type);
 
         window.open(fullUrl, 'postgres_help');
       } else if(type == 'dialog_help') {
@@ -1001,23 +1003,25 @@ define('pgadmin.browser', [
                   while (e >= s) {
                     i = items.eq(s);
                     var d = ctx.t.itemData(i);
-                    if (
-                      pgAdmin.natural_sort(
-                        d._label, _data._label
-                      ) == 1
-                    )
-                      return true;
+                    if (d._type === 'column') {
+                      if (pgAdmin.numeric_comparator(d._id, _data._id) == 1)
+                        return true;
+                    } else {
+                      if (pgAdmin.natural_sort(d._label, _data._label) == 1)
+                        return true;
+                    }
                     s++;
                   }
+                  //when the current element is greater than the end element
                   if (e != items.length - 1) {
-                    i = items.eq(e);
+                    i = items.eq(e+1);
                     return true;
                   }
                   i = null;
                   return false;
                 },
                 binarySearch = function() {
-                  var d, m, res;
+                  var d, m;
                   // Binary search only outperforms Linear search for n > 44.
                   // Reference:
                   // https://en.wikipedia.org/wiki/Binary_search_algorithm#cite_note-30
@@ -1026,28 +1030,43 @@ define('pgadmin.browser', [
                   while (e - s > 22) {
                     i = items.eq(s);
                     d = ctx.t.itemData(i);
-                    if (
-                      pgAdmin.natural_sort(
-                        d._label, _data._label
-                      ) != -1
-                    )
-                      return true;
+                    if (d._type === 'column') {
+                      if (pgAdmin.numeric_comparator(d._id, _data._id) != -1)
+                        return true;
+                    } else {
+                      if (pgAdmin.natural_sort(d._label, _data._label) != -1)
+                        return true;
+                    }
                     i = items.eq(e);
                     d = ctx.t.itemData(i);
-                    if (
-                      pgAdmin.natural_sort(
-                        d._label, _data._label
-                      ) != 1
-                    )
-                      return true;
+                    let result;
+                    if (d._type === 'column') {
+                      result = pgAdmin.numeric_comparator(d._id, _data._id);
+                    } else {
+                      result = pgAdmin.natural_sort(d._label, _data._label);
+                    }
+                    if (result !=1) {
+                      if (e != items.length - 1) {
+                        i = items.eq(e+1);
+                        return true;
+                      }
+                      i = null;
+                      return false;
+                    }
                     m = s + Math.round((e - s) / 2);
                     i = items.eq(m);
                     d = ctx.t.itemData(i);
-                    res = pgAdmin.natural_sort(d._label, _data._label);
-                    if (res == 0)
+                    if(d._type === 'column'){
+                      result = pgAdmin.numeric_comparator(d._id, _data._id);
+                    } else {
+                      result = pgAdmin.natural_sort(d._label, _data._label);
+                    }
+                    //result will never become 0 because of remove operation
+                    //which happens with updateTreeNode
+                    if (result == 0)
                       return true;
 
-                    if (res == -1) {
+                    if (result == -1) {
                       s = m + 1;
                       e--;
                     } else {
@@ -1246,7 +1265,7 @@ define('pgadmin.browser', [
             var _parent = this.t.parent(this.i) || null;
 
             // If there is no parent then just update the node
-            if(_parent.length == 0 && ctx.op == 'UPDATE') {
+            if(_parent && _parent.length == 0 && ctx.op == 'UPDATE') {
               updateNode();
             } else {
               var postRemove = function() {
@@ -1500,16 +1519,17 @@ define('pgadmin.browser', [
                   while (e >= s) {
                     i = items.eq(s);
                     var d = ctx.t.itemData(i);
-                    if (
-                      pgAdmin.natural_sort(
-                        d._label, _new._label
-                      ) == 1
-                    )
-                      return true;
+                    if (d._type === 'column') {
+                      if (pgAdmin.numeric_comparator(d._id, _new._id) == 1)
+                        return true;
+                    } else {
+                      if (pgAdmin.natural_sort(d._label, _new._label) == 1)
+                        return true;
+                    }
                     s++;
                   }
                   if (e != items.length - 1) {
-                    i = items.eq(e);
+                    i = items.eq(e+1);
                     return true;
                   }
                   i = null;
@@ -1519,28 +1539,43 @@ define('pgadmin.browser', [
                   while (e - s > 22) {
                     i = items.eq(s);
                     var d = ctx.t.itemData(i);
-                    if (
-                      pgAdmin.natural_sort(
-                        d._label, _new._label
-                      ) != -1
-                    )
-                      return true;
+                    if (d._type === 'column') {
+                      if (pgAdmin.numeric_comparator(d._id, _new._id) != -1)
+                        return true;
+                    } else {
+                      if (pgAdmin.natural_sort(d._label, _new._label) != -1)
+                        return true;
+                    }
                     i = items.eq(e);
                     d = ctx.t.itemData(i);
-                    if (
-                      pgAdmin.natural_sort(
-                        d._label, _new._label
-                      ) != 1
-                    )
-                      return true;
+                    let result;
+                    if (d._type === 'column') {
+                      result = pgAdmin.numeric_comparator(d._id, _new._id);
+                    } else {
+                      result = pgAdmin.natural_sort(d._label, _new._label);
+                    }
+                    if (result !=1) {
+                      if (e != items.length - 1) {
+                        i = items.eq(e+1);
+                        return true;
+                      }
+                      i = null;
+                      return false;
+                    }
                     var m = s + Math.round((e - s) / 2);
                     i = items.eq(m);
                     d = ctx.t.itemData(i);
-                    var res = pgAdmin.natural_sort(d._label, _new._label);
-                    if (res == 0)
+                    if(d._type === 'column'){
+                      result = pgAdmin.numeric_comparator(d._id, _new._id);
+                    } else {
+                      result = pgAdmin.natural_sort(d._label, _new._label);
+                    }
+                    //result will never become 0 because of remove operation
+                    //which happens with updateTreeNode
+                    if (result == 0)
                       return true;
 
-                    if (res == -1) {
+                    if (result == -1) {
                       s = m + 1;
                       e--;
                     } else {
@@ -1660,14 +1695,14 @@ define('pgadmin.browser', [
       }
 
       // If server icon/background changes then also we need to re-create it
-      if(_old._type == 'server' && _new._type == 'server' &&
-        ( _old._pid != _new._pid ||
+      if ((
+        _old._type == 'server' && _new._type == 'server' && (
+          _old._pid != _new._pid ||
           _old._label != _new._label ||
-            _old.icon != _new.icon )
+          _old.icon != _new.icon
+        )) || _old._pid != _new._pid || _old._label != _new._label ||
+        _old._id != _new._id
       ) {
-        ctx.op = 'RECREATE';
-        traversePath();
-      } else if (_old._pid != _new._pid || _old._label != _new._label) {
         ctx.op = 'RECREATE';
         traversePath();
       } else {
@@ -1963,7 +1998,7 @@ define('pgadmin.browser', [
     findChildCollectionTreeNode: function(_node, _collType) {
       var tree = pgBrowser.tree,
         nodeData, idx = 0,
-        node = _node,
+        node,
         children = _node && tree.children(_node);
 
       if (!children || !children.length)
@@ -2117,9 +2152,8 @@ define('pgadmin.browser', [
       'Ctrl-D': 'deleteLine',
       'Cmd-D': 'deleteLine',
 
-      // Go to start/end of Line
-      'Alt-Left': 'goLineStart',
-      'Alt-Right': 'goLineEnd',
+      'Alt-Up': 'goLineUp',
+      'Alt-Down': 'goLineDown',
 
       // Move word by word left/right
       'Ctrl-Alt-Left': 'goGroupLeft',

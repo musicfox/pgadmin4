@@ -11,8 +11,6 @@
 
 import simplejson as json
 import re
-import copy
-import random
 
 import pgadmin.browser.server_groups.servers.databases as database
 from flask import render_template, request, jsonify, url_for, current_app
@@ -25,11 +23,6 @@ from pgadmin.utils.ajax import make_json_response, internal_server_error, \
 from .utils import BaseTableView
 from pgadmin.utils.preferences import Preferences
 from pgadmin.tools.schema_diff.node_registry import SchemaDiffRegistry
-from pgadmin.tools.schema_diff.directory_compare import compare_dictionaries,\
-    directory_diff
-from pgadmin.tools.schema_diff.model import SchemaDiffModel
-from pgadmin.utils.driver import get_driver
-from config import PG_DEFAULT_DRIVER
 from pgadmin.browser.server_groups.servers.databases.schemas.tables.\
     constraints.foreign_key import utils as fkey_utils
 from .schema_diff_utils import SchemaDiffTableCompare
@@ -600,6 +593,8 @@ class TableView(BaseTableView, DataTypeReader, VacuumSettings,
         status, res = self._fetch_properties(did, scid, tid)
         if not status:
             return res
+        if not res['rows']:
+            return gone(gettext("The specified table could not be found."))
 
         return super(TableView, self).properties(
             gid, sid, did, scid, tid, res
@@ -626,6 +621,42 @@ class TableView(BaseTableView, DataTypeReader, VacuumSettings,
             return False, gone(
                 gettext("The specified table could not be found."))
 
+        # Set value based on
+        # x: No set, t: true, f: false
+        res['rows'][0]['autovacuum_enabled'] = 'x' \
+            if res['rows'][0]['autovacuum_enabled'] is None else \
+            {True: 't', False: 'f'}[res['rows'][0]['autovacuum_enabled']]
+
+        res['rows'][0]['toast_autovacuum_enabled'] = 'x' \
+            if res['rows'][0]['toast_autovacuum_enabled'] is None else \
+            {True: 't', False: 'f'}[res['rows'][0]['toast_autovacuum_enabled']]
+
+        # Enable custom autovaccum only if one of the options is set
+        # or autovacuum is set
+        res['rows'][0]['autovacuum_custom'] = any([
+            res['rows'][0]['autovacuum_vacuum_threshold'],
+            res['rows'][0]['autovacuum_vacuum_scale_factor'],
+            res['rows'][0]['autovacuum_analyze_threshold'],
+            res['rows'][0]['autovacuum_analyze_scale_factor'],
+            res['rows'][0]['autovacuum_vacuum_cost_delay'],
+            res['rows'][0]['autovacuum_vacuum_cost_limit'],
+            res['rows'][0]['autovacuum_freeze_min_age'],
+            res['rows'][0]['autovacuum_freeze_max_age'],
+            res['rows'][0]['autovacuum_freeze_table_age']]) \
+            or res['rows'][0]['autovacuum_enabled'] in ('t', 'f')
+
+        res['rows'][0]['toast_autovacuum'] = any([
+            res['rows'][0]['toast_autovacuum_vacuum_threshold'],
+            res['rows'][0]['toast_autovacuum_vacuum_scale_factor'],
+            res['rows'][0]['toast_autovacuum_analyze_threshold'],
+            res['rows'][0]['toast_autovacuum_analyze_scale_factor'],
+            res['rows'][0]['toast_autovacuum_vacuum_cost_delay'],
+            res['rows'][0]['toast_autovacuum_vacuum_cost_limit'],
+            res['rows'][0]['toast_autovacuum_freeze_min_age'],
+            res['rows'][0]['toast_autovacuum_freeze_max_age'],
+            res['rows'][0]['toast_autovacuum_freeze_table_age']]) \
+            or res['rows'][0]['toast_autovacuum_enabled'] in ('t', 'f')
+
         # We will check the threshold set by user before executing
         # the query because that can cause performance issues
         # with large result set
@@ -633,6 +664,17 @@ class TableView(BaseTableView, DataTypeReader, VacuumSettings,
         table_row_count_pref = pref.preference('table_row_count_threshold')
         table_row_count_threshold = table_row_count_pref.get()
         estimated_row_count = int(res['rows'][0].get('reltuples', 0))
+
+        # Check whether 'rlspolicy' in response as it supported for
+        # version 9.5 and above
+        if 'rlspolicy' in res['rows'][0]:
+            # Set the value of rls policy
+            if res['rows'][0]['rlspolicy'] == "true":
+                res['rows'][0]['rlspolicy'] = True
+
+            # Set the value of force rls policy for table owner
+            if res['rows'][0]['forcerlspolicy'] == "true":
+                res['rows'][0]['forcerlspolicy'] = True
 
         # If estimated rows are greater than threshold then
         if estimated_row_count and \
@@ -915,8 +957,8 @@ class TableView(BaseTableView, DataTypeReader, VacuumSettings,
                     status=410,
                     success=0,
                     errormsg=gettext(
-                        "Could not find the required parameter (%s)." % arg
-                    )
+                        "Could not find the required parameter ({})."
+                    ).format(arg)
                 )
 
         # Parse privilege data coming from client according to database format
@@ -950,6 +992,11 @@ class TableView(BaseTableView, DataTypeReader, VacuumSettings,
                 data['partition_scheme'] = self.get_partition_scheme(data)
                 partitions_sql = self.get_partitions_sql(data)
 
+            # Update the vacuum table settings.
+            BaseTableView.update_vacuum_settings(self, 'vacuum_table', data)
+            # Update the vacuum toast table settings.
+            BaseTableView.update_vacuum_settings(self, 'vacuum_toast', data)
+
             SQL = render_template(
                 "/".join([self.table_template_path, 'create.sql']),
                 data=data, conn=self.conn
@@ -976,14 +1023,14 @@ class TableView(BaseTableView, DataTypeReader, VacuumSettings,
                 tname=data['name']
             )
 
-            status, scid = self.conn.execute_scalar(SQL)
+            status, new_scid = self.conn.execute_scalar(SQL)
             if not status:
-                return internal_server_error(errormsg=scid)
+                return internal_server_error(errormsg=new_scid)
 
             # we need oid to to add object in tree at browser
             SQL = render_template(
                 "/".join([self.table_template_path, 'get_oid.sql']),
-                scid=scid, data=data
+                scid=new_scid, data=data
             )
 
             status, tid = self.conn.execute_scalar(SQL)
@@ -993,7 +1040,7 @@ class TableView(BaseTableView, DataTypeReader, VacuumSettings,
             return jsonify(
                 node=self.blueprint.generate_browser_node(
                     tid,
-                    scid,
+                    new_scid,
                     data['name'],
                     icon=self.get_icon_css_class(data),
                     is_partitioned=self.is_table_partitioned(data)
@@ -1030,14 +1077,9 @@ class TableView(BaseTableView, DataTypeReader, VacuumSettings,
                 data[k] = v
 
         try:
-            SQL = render_template(
-                "/".join([self.table_template_path, 'properties.sql']),
-                did=did, scid=scid, tid=tid,
-                datlastsysoid=self.datlastsysoid
-            )
-            status, res = self.conn.execute_dict(SQL)
+            status, res = self._fetch_properties(did, scid, tid)
             if not status:
-                return internal_server_error(errormsg=res)
+                return res
 
             return super(TableView, self).update(
                 gid, sid, did, scid, tid, data, res)
@@ -1122,6 +1164,9 @@ class TableView(BaseTableView, DataTypeReader, VacuumSettings,
             if not status:
                 return internal_server_error(errormsg=res)
 
+            if len(res['rows']) == 0:
+                return gone(gettext("The specified table could not be found."))
+
             return super(TableView, self).truncate(
                 gid, sid, did, scid, tid, res
             )
@@ -1204,7 +1249,6 @@ class TableView(BaseTableView, DataTypeReader, VacuumSettings,
         """
         data = dict()
         res = None
-        sid = kwargs['sid']
         did = kwargs['did']
         scid = kwargs['scid']
         tid = kwargs['tid']
@@ -1212,8 +1256,6 @@ class TableView(BaseTableView, DataTypeReader, VacuumSettings,
         json_resp = kwargs['json_resp'] if 'json_resp' in kwargs else True
         diff_schema = kwargs['diff_schema'] if 'diff_schema' in kwargs else\
             None
-        schema_diff_table = kwargs['schema_diff_table'] if\
-            'schema_diff_table' in kwargs else None
 
         if diff_data:
             return self._fetch_sql(did, scid, tid, diff_data, json_resp)
@@ -1239,24 +1281,8 @@ class TableView(BaseTableView, DataTypeReader, VacuumSettings,
             if diff_schema:
                 data['schema'] = diff_schema
 
-            if schema_diff_table:
-                data['orig_name'] = data['name']
-                data['name'] = 'schema_diff_temp_{0}'.format(
-                    random.randint(1, 9999999))
-
-                sql, partition_sql = BaseTableView.get_reverse_engineered_sql(
-                    self, did, scid, tid, main_sql, data, json_resp,
-                    diff_partition_sql=True)
-            else:
-                sql, partition_sql = BaseTableView.get_reverse_engineered_sql(
-                    self, did, scid, tid, main_sql, data, json_resp)
-
-            if schema_diff_table:
-                # If partition tables have different partitions
-                sql += render_template(
-                    "/".join([self.table_template_path, 'schema_diff.sql']),
-                    conn=self.conn, data=data, partition_sql=partition_sql
-                )
+            sql, partition_sql = BaseTableView.get_reverse_engineered_sql(
+                self, did, scid, tid, main_sql, data, json_resp)
 
             return sql
 
@@ -1273,7 +1299,6 @@ class TableView(BaseTableView, DataTypeReader, VacuumSettings,
            tid: Table ID
         """
         data = dict()
-        SQL = ''
         for k, v in request.args.items():
             try:
                 # comments should be taken as is because if user enters a
@@ -1291,14 +1316,9 @@ class TableView(BaseTableView, DataTypeReader, VacuumSettings,
         res = None
 
         if tid is not None:
-            SQL = render_template(
-                "/".join([self.table_template_path, 'properties.sql']),
-                did=did, scid=scid, tid=tid,
-                datlastsysoid=self.datlastsysoid
-            )
-            status, res = self.conn.execute_dict(SQL)
+            status, res = self._fetch_properties(did, scid, tid)
             if not status:
-                return internal_server_error(errormsg=SQL)
+                return res
 
         SQL, name = self.get_sql(did, scid, tid, data, res)
         SQL = re.sub('\n{2,}', '\n\n', SQL)
@@ -1360,14 +1380,9 @@ class TableView(BaseTableView, DataTypeReader, VacuumSettings,
         """
         main_sql = []
 
-        SQL = render_template(
-            "/".join([self.table_template_path, 'properties.sql']),
-            did=did, scid=scid, tid=tid,
-            datlastsysoid=self.datlastsysoid
-        )
-        status, res = self.conn.execute_dict(SQL)
+        status, res = self._fetch_properties(did, scid, tid)
         if not status:
-            return internal_server_error(errormsg=res)
+            return res
 
         if len(res['rows']) == 0:
             return gone(gettext("The specified table could not be found."))
@@ -1400,6 +1415,9 @@ class TableView(BaseTableView, DataTypeReader, VacuumSettings,
         status, res = self.conn.execute_dict(SQL)
         if not status:
             return internal_server_error(errormsg=res)
+
+        if len(res['rows']) == 0:
+            return gone(gettext("The specified table could not be found."))
 
         data = res['rows'][0]
         data = self._formatter(did, scid, tid, data)
@@ -1445,6 +1463,9 @@ class TableView(BaseTableView, DataTypeReader, VacuumSettings,
         status, res = self.conn.execute_dict(SQL)
         if not status:
             return internal_server_error(errormsg=res)
+
+        if len(res['rows']) == 0:
+            return gone(gettext("The specified table could not be found."))
 
         data = res['rows'][0]
         data = self._formatter(did, scid, tid, data)
@@ -1493,6 +1514,9 @@ class TableView(BaseTableView, DataTypeReader, VacuumSettings,
         status, res = self.conn.execute_dict(SQL)
         if not status:
             return internal_server_error(errormsg=res)
+
+        if len(res['rows']) == 0:
+            return gone(gettext("The specified table could not be found."))
 
         data = res['rows'][0]
         data = self._formatter(did, scid, tid, data)
@@ -1544,6 +1568,9 @@ class TableView(BaseTableView, DataTypeReader, VacuumSettings,
         if not status:
             return internal_server_error(errormsg=res)
 
+        if len(res['rows']) == 0:
+            return gone(gettext("The specified table could not be found."))
+
         data = res['rows'][0]
 
         sql = u"DELETE FROM {0}\n\tWHERE <condition>;".format(
@@ -1590,6 +1617,9 @@ class TableView(BaseTableView, DataTypeReader, VacuumSettings,
         data['schema'], data['name'] = \
             super(TableView, self).get_schema_and_table_name(tid)
 
+        if data['name'] is None:
+            return gone(gettext("The specified table could not be found."))
+
         SQL = render_template(
             "/".join(
                 [self.table_template_path, 'get_table_row_count.sql']
@@ -1603,18 +1633,29 @@ class TableView(BaseTableView, DataTypeReader, VacuumSettings,
 
         return make_json_response(
             status=200,
-            info=gettext("Table rows counted: %s" % count),
+            info=gettext("Table rows counted: {}").format(count),
             data={'total_rows': count}
         )
 
-    def get_delete_sql(self, res):
-        self.cmd = 'delete'
-        sql = super(TableView, self).get_delete_sql(res)
-        self.cmd = None
+    @BaseTableView.check_precondition
+    def get_drop_sql(self, sid, did, scid, tid):
+        SQL = render_template("/".join(
+            [self.table_template_path, 'properties.sql']),
+            did=did, scid=scid, tid=tid,
+            datlastsysoid=self.datlastsysoid
+        )
+        status, res = self.conn.execute_dict(SQL)
+        sql = ''
+
+        if status:
+            self.cmd = 'delete'
+            sql = super(TableView, self).get_delete_sql(res)
+            self.cmd = None
+
         return sql
 
     @BaseTableView.check_precondition
-    def fetch_tables(self, sid, did, scid, tid=None, keys_to_remove=None):
+    def fetch_tables(self, sid, did, scid, tid=None):
         """
         This function will fetch the list of all the tables
         and will be used by schema diff.
@@ -1623,9 +1664,13 @@ class TableView(BaseTableView, DataTypeReader, VacuumSettings,
         :param did: Database Id
         :param scid: Schema Id
         :param tid: Table Id
-        :param keys_to_remove: Table columns to be removed from the dataset
         :return: Table dataset
         """
+        sub_modules = ['index', 'rule', 'trigger']
+        if self.manager.server_type == 'ppas' and \
+                self.manager.version >= 120000:
+            sub_modules.append('compound_trigger')
+
         if tid:
             status, data = self._fetch_properties(did, scid, tid)
 
@@ -1636,7 +1681,7 @@ class TableView(BaseTableView, DataTypeReader, VacuumSettings,
             data = super(TableView, self).properties(
                 0, sid, did, scid, tid, data, False
             )
-            self.remove_keys_for_comparision(data, keys_to_remove)
+
             return data
 
         else:
@@ -1656,7 +1701,17 @@ class TableView(BaseTableView, DataTypeReader, VacuumSettings,
                         0, sid, did, scid, row['oid'], data, False
                     )
 
-                    self.remove_keys_for_comparision(data, keys_to_remove)
+                    # Get sub module data of a specified table for object
+                    # comparison
+                    for module in sub_modules:
+                        module_view = SchemaDiffRegistry.get_node_view(module)
+                        if module_view.blueprint.server_type is None or \
+                            self.manager.server_type in \
+                                module_view.blueprint.server_type:
+                            sub_data = module_view.fetch_objects_to_compare(
+                                sid=sid, did=did, scid=scid, tid=row['oid'],
+                                oid=None)
+                            data[module] = sub_data
                     res[row['name']] = data
 
             return res

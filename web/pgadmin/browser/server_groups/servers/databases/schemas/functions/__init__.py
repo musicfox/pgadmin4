@@ -220,7 +220,8 @@ class FunctionView(PGChildNodeView, DataTypeReader, SchemaDiffObjectCompare):
     })
 
     keys_to_ignore = ['oid', 'proowner', 'typnsp', 'xmin', 'prokind',
-                      'proisagg', 'pronamespace', 'proargdefaults']
+                      'proisagg', 'pronamespace', 'proargdefaults',
+                      'prorettype', 'proallargtypes', 'proacl', 'oid-2']
 
     @property
     def required_args(self):
@@ -276,9 +277,8 @@ class FunctionView(PGChildNodeView, DataTypeReader, SchemaDiffObjectCompare):
                             status=410,
                             success=0,
                             errormsg=gettext(
-                                "Could not find the required parameter (%s)." %
-                                arg
-                            )
+                                "Could not find the required parameter ({})."
+                            ).format(arg)
                         )
 
             list_params = []
@@ -397,8 +397,9 @@ class FunctionView(PGChildNodeView, DataTypeReader, SchemaDiffObjectCompare):
         if fnid is not None:
             if len(rset['rows']) == 0:
                 return gone(
-                    _("Could not find the specified %s.").format(
-                        self.node_type)
+                    gettext("Could not find the specified %s.").format(
+                        self.node_type
+                    )
                 )
 
             row = rset['rows'][0]
@@ -479,7 +480,8 @@ class FunctionView(PGChildNodeView, DataTypeReader, SchemaDiffObjectCompare):
         """
         proargtypes = [ptype for ptype in data['proargtypenames'].split(",")] \
             if data['proargtypenames'] else []
-        proargmodes = data['proargmodes'] if data['proargmodes'] else []
+        proargmodes = data['proargmodes'] if data['proargmodes'] else \
+            ['i'] * len(proargtypes)
         proargnames = data['proargnames'] if data['proargnames'] else []
         proargdefaultvals = [ptype for ptype in
                              data['proargdefaultvals'].split(",")] \
@@ -623,7 +625,7 @@ class FunctionView(PGChildNodeView, DataTypeReader, SchemaDiffObjectCompare):
 
         arg = ''
 
-        if argmode and argmode:
+        if argmode:
             arg += argmode + " "
         if argname:
             arg += argname + " "
@@ -1003,14 +1005,14 @@ class FunctionView(PGChildNodeView, DataTypeReader, SchemaDiffObjectCompare):
 
             if diff_schema:
                 res['rows'][0]['nspname'] = diff_schema
+
+            # Add newline and tab before each argument to format
             name_with_default_args = self.qtIdent(
                 self.conn,
                 res['rows'][0]['nspname'],
                 res['rows'][0]['proname']
-            ) + '(' + res['rows'][0]['func_args'] + ')'
-            # Add newline and tab before each argument to format
-            name_with_default_args = name_with_default_args.replace(
-                ', ', ',\r\t').replace('(', '(\r\t')
+            ) + '(\n\t' + res['rows'][0]['func_args'].\
+                replace(', ', ',\n\t') + ')'
 
             # Parse privilege data
             if 'acl' in resp_data:
@@ -1058,16 +1060,13 @@ class FunctionView(PGChildNodeView, DataTypeReader, SchemaDiffObjectCompare):
                 res['rows'][0]['nspname'] = diff_schema
                 resp_data['pronamespace'] = diff_schema
 
+            # Add newline and tab before each argument to format
             name_with_default_args = self.qtIdent(
                 self.conn,
                 res['rows'][0]['nspname'],
                 res['rows'][0]['proname']
-            ) + '(' + res['rows'][0]['func_args'] + ')'
-            # Add newline and tab before each argument to format
-            name_with_default_args = name_with_default_args.replace(
-                ', ',
-                ',\r\t'
-            ).replace('(', '(\r\t')
+            ) + '(\n\t' + res['rows'][0]['func_args']. \
+                replace(', ', ',\n\t') + ')'
 
             # Generate sql for "SQL panel"
             # func_def is function signature with default arguments
@@ -1078,16 +1077,14 @@ class FunctionView(PGChildNodeView, DataTypeReader, SchemaDiffObjectCompare):
                                        func_def=name_with_default_args,
                                        query_for="sql_panel")
 
-        sql_header = u"""-- {0}: {1}({2})
-
--- DROP {0} {1}({2});
-
-""".format(object_type.upper(),
-           self.qtIdent(
-               self.conn,
-               resp_data['pronamespace'],
-               resp_data['proname']),
-           resp_data['proargtypenames'].lstrip('(').rstrip(')'))
+        sql_header = u"""-- {0}: {1}.{2}({3})\n\n""".format(
+            object_type.upper(), resp_data['pronamespace'],
+            resp_data['proname'],
+            resp_data['proargtypenames'].lstrip('(').rstrip(')'))
+        sql_header += """-- DROP {0} {1}({2});\n\n""".format(
+            object_type.upper(), self.qtIdent(
+                self.conn, resp_data['pronamespace'], resp_data['proname']),
+            resp_data['proargtypenames'].lstrip('(').rstrip(')'))
 
         if not json_resp:
             return re.sub('\n{2,}', '\n\n', func_def)
@@ -1125,7 +1122,8 @@ class FunctionView(PGChildNodeView, DataTypeReader, SchemaDiffObjectCompare):
             SQL = re.sub('\n{2,}', '\n\n', SQL)
             return SQL
 
-    def _get_sql(self, gid, sid, did, scid, data, fnid=None, is_sql=False):
+    def _get_sql(self, gid, sid, did, scid, data, fnid=None, is_sql=False,
+                 is_schema_diff=False):
         """
         Generates the SQL statements to create/update the Function.
 
@@ -1147,12 +1145,13 @@ class FunctionView(PGChildNodeView, DataTypeReader, SchemaDiffObjectCompare):
                 data['pronamespace']
             )
         if 'provolatile' in data:
-            data['provolatile'] = vol_dict[data['provolatile']]
+            data['provolatile'] = vol_dict[data['provolatile']]\
+                if data['provolatile'] else ''
 
         if fnid is not None:
             # Edit Mode
 
-            if 'proparallel' in data:
+            if 'proparallel' in data and data['proparallel']:
                 data['proparallel'] = parallel_dict[data['proparallel']]
 
             # Fetch Old Data from database.
@@ -1186,9 +1185,8 @@ class FunctionView(PGChildNodeView, DataTypeReader, SchemaDiffObjectCompare):
 
             data['change_func'] = False
             for arg in fun_change_args:
-                if arg == 'arguments' and arg in data and len(data[arg]) > 0:
-                    data['change_func'] = True
-                elif arg in data:
+                if (arg == 'arguments' and arg in data and len(data[arg]) > 0)\
+                        or arg in data:
                     data['change_func'] = True
 
             # If Function Definition/Arguments are changed then merge old
@@ -1239,8 +1237,11 @@ class FunctionView(PGChildNodeView, DataTypeReader, SchemaDiffObjectCompare):
                     for v in data['variables']['added']:
                         chngd_variables[v['name']] = v['value']
 
-                for v in old_data['variables']:
-                    old_data['chngd_variables'][v['name']] = v['value']
+                # In case of schema diff we don't want variables from
+                # old data
+                if not is_schema_diff:
+                    for v in old_data['variables']:
+                        old_data['chngd_variables'][v['name']] = v['value']
 
                 # Prepare final dict of new and old variables
                 for name, val in old_data['chngd_variables'].items():
@@ -1362,6 +1363,11 @@ class FunctionView(PGChildNodeView, DataTypeReader, SchemaDiffObjectCompare):
         resp_data['sysfunc'] = False
         if fnid <= self.manager.db_info[did]['datlastsysoid']:
             resp_data['sysfunc'] = True
+
+        # Set System Functions Status
+        resp_data['sysproc'] = False
+        if fnid <= self.manager.db_info[did]['datlastsysoid']:
+            resp_data['sysproc'] = True
 
         # Get formatted Security Labels
         if 'seclabels' in resp_data:
@@ -1501,6 +1507,8 @@ class FunctionView(PGChildNodeView, DataTypeReader, SchemaDiffObjectCompare):
         status, res = self.conn.execute_2darray(SQL)
         if not status:
             return internal_server_error(errormsg=res)
+        if len(res['rows']) == 0:
+            return gone(gettext("The specified function could not be found."))
 
         name = self.qtIdent(
             self.conn, res['rows'][0]['nspname'],
@@ -1624,7 +1632,15 @@ class FunctionView(PGChildNodeView, DataTypeReader, SchemaDiffObjectCompare):
         if data:
             if diff_schema:
                 data['schema'] = diff_schema
-            status, sql = self._get_sql(gid, sid, did, scid, data, oid)
+            status, sql = self._get_sql(gid, sid, did, scid, data, oid, False,
+                                        True)
+            # Check if return type is changed then we need to drop the
+            # function first and then recreate it.
+            drop_fun_sql = ''
+            if 'prorettypename' in data:
+                drop_fun_sql = self.delete(gid=gid, sid=sid, did=did,
+                                           scid=scid, fnid=oid, only_sql=True)
+                sql = drop_fun_sql + '\n' + sql
         else:
             if drop_sql:
                 sql = self.delete(gid=gid, sid=sid, did=did,

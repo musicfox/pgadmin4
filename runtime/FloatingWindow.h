@@ -28,7 +28,6 @@ class FloatingWindow : public QMainWindow
 
 public:
     explicit FloatingWindow(QWidget *parent = Q_NULLPTR);
-    ~FloatingWindow();
 
     bool Init();
     void enableShutdownMenu();
@@ -41,11 +40,11 @@ private:
     void createActions();
     void closeEvent(QCloseEvent * event);
 
-    QAction *m_newAction;
-    QAction *m_copyUrlAction;
-    QAction *m_configAction;
-    QAction *m_logAction;
-    QAction *m_quitAction;
+    QAction *m_newAction = Q_NULLPTR;
+    QAction *m_copyUrlAction = Q_NULLPTR;
+    QAction *m_configAction = Q_NULLPTR;
+    QAction *m_logAction = Q_NULLPTR;
+    QAction *m_quitAction = Q_NULLPTR;
 
     QMenu *m_floatingWindowMenu;
     MenuActions *m_menuActions;

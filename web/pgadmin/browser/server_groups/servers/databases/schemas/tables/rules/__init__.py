@@ -25,13 +25,10 @@ from pgadmin.utils.ajax import make_json_response, internal_server_error, \
 from pgadmin.utils.driver import get_driver
 from config import PG_DEFAULT_DRIVER
 from pgadmin.utils.compile_template_name import compile_template_path
-from pgadmin.utils import IS_PY2
 from pgadmin.tools.schema_diff.node_registry import SchemaDiffRegistry
 from pgadmin.tools.schema_diff.compare import SchemaDiffObjectCompare
-
-# If we are in Python3
-if not IS_PY2:
-    unicode = str
+from pgadmin.tools.schema_diff.directory_compare import directory_diff,\
+    parse_acl
 
 
 class RuleModule(CollectionNodeModule):
@@ -68,16 +65,15 @@ class RuleModule(CollectionNodeModule):
             SQL = render_template("/".join(
                 [self.template_path, 'backend_support.sql']
             ), vid=kwargs['vid'])
+
             status, res = conn.execute_scalar(SQL)
             # check if any errors
             if not status:
                 return internal_server_error(errormsg=res)
+
             # Check tid is view not material view
             # then true, othewise false
-            if res is True:
-                return res
-            else:
-                return res
+            return res
 
     def get_nodes(self, gid, sid, did, scid, **kwargs):
         """
@@ -184,7 +180,7 @@ class RuleView(PGChildNodeView, SchemaDiffObjectCompare):
     })
 
     # Schema Diff: Keys to ignore while comparing
-    keys_to_ignore = ['oid', 'schema', 'definition']
+    keys_to_ignore = ['oid', 'schema', 'definition', 'oid-2']
 
     def check_precondition(f):
         """
@@ -340,8 +336,8 @@ class RuleView(PGChildNodeView, SchemaDiffObjectCompare):
                     status=410,
                     success=0,
                     errormsg=gettext(
-                        "Could not find the required parameter (%s)." % arg
-                    )
+                        "Could not find the required parameter ({})."
+                    ).format(arg)
                 )
         try:
             SQL = render_template("/".join(
@@ -378,7 +374,7 @@ class RuleView(PGChildNodeView, SchemaDiffObjectCompare):
         )
         try:
             SQL, name = self.getSQL(gid, sid, data, tid, rid)
-            if not isinstance(SQL, (str, unicode)):
+            if not isinstance(SQL, str):
                 return SQL
             SQL = SQL.strip('\n').strip(' ')
             status, res = self.conn.execute_scalar(SQL)
@@ -460,7 +456,7 @@ class RuleView(PGChildNodeView, SchemaDiffObjectCompare):
         """
         data = request.args
         sql, name = self.getSQL(gid, sid, data, tid, rid)
-        if not isinstance(sql, (str, unicode)):
+        if not isinstance(sql, str):
             return sql
         sql = sql.strip('\n').strip(' ')
 
@@ -520,7 +516,8 @@ class RuleView(PGChildNodeView, SchemaDiffObjectCompare):
 
     @check_precondition
     def get_sql_from_diff(self, gid, sid, did, scid, tid, oid, data=None,
-                          diff_schema=None, drop_sql=False):
+                          source_schema=None, diff_schema=None,
+                          drop_sql=False):
 
         if drop_sql:
             SQL = self.delete(gid=gid, sid=sid, did=did,
@@ -541,6 +538,10 @@ class RuleView(PGChildNodeView, SchemaDiffObjectCompare):
             SQL = ''
 
             if data:
+                if source_schema and 'statements' in data:
+                    # Replace the source schema with the target schema
+                    data['statements'] = data['statements'].replace(
+                        source_schema, diff_schema)
                 old_data = res_data
                 SQL = render_template(
                     "/".join([self.template_path, 'update.sql']),
@@ -548,6 +549,11 @@ class RuleView(PGChildNodeView, SchemaDiffObjectCompare):
                 )
             else:
                 if diff_schema:
+                    if 'statements' in res_data:
+                        # Replace the source schema with the target schema
+                        res_data['statements'] = \
+                            res_data['statements'].replace(
+                                res_data['schema'], diff_schema)
                     res_data['schema'] = diff_schema
 
                 SQL = render_template("/".join(
@@ -595,8 +601,7 @@ class RuleView(PGChildNodeView, SchemaDiffObjectCompare):
         )
 
     @check_precondition
-    def fetch_objects_to_compare(self, sid, did, scid, tid, oid=None,
-                                 ignore_keys=False):
+    def fetch_objects_to_compare(self, sid, did, scid, tid, oid=None):
         """
         This function will fetch the list of all the rules for
         specified schema id.
@@ -628,12 +633,60 @@ class RuleView(PGChildNodeView, SchemaDiffObjectCompare):
             for row in rules['rows']:
                 status, data = self._fetch_properties(row['oid'])
                 if status:
-                    if ignore_keys:
-                        for key in self.keys_to_ignore:
-                            if key in data:
-                                del data[key]
                     res[row['name']] = data
         return res
+
+    def ddl_compare(self, **kwargs):
+        """
+        This function returns the DDL/DML statements based on the
+        comparison status.
+
+        :param kwargs:
+        :return:
+        """
+
+        src_params = kwargs.get('source_params')
+        tgt_params = kwargs.get('target_params')
+        source = kwargs.get('source')
+        target = kwargs.get('target')
+        target_schema = kwargs.get('target_schema')
+        comp_status = kwargs.get('comp_status')
+
+        diff = ''
+        if comp_status == 'source_only':
+            diff = self.get_sql_from_diff(gid=src_params['gid'],
+                                          sid=src_params['sid'],
+                                          did=src_params['did'],
+                                          scid=src_params['scid'],
+                                          tid=src_params['tid'],
+                                          oid=source['oid'],
+                                          diff_schema=target_schema)
+        elif comp_status == 'target_only':
+            diff = self.get_sql_from_diff(gid=tgt_params['gid'],
+                                          sid=tgt_params['sid'],
+                                          did=tgt_params['did'],
+                                          scid=tgt_params['scid'],
+                                          tid=tgt_params['tid'],
+                                          oid=target['oid'],
+                                          drop_sql=True)
+        elif comp_status == 'different':
+            diff_dict = directory_diff(
+                source, target,
+                ignore_keys=self.keys_to_ignore, difference={}
+            )
+            parse_acl(source, target, diff_dict)
+
+            diff = self.get_sql_from_diff(gid=tgt_params['gid'],
+                                          sid=tgt_params['sid'],
+                                          did=tgt_params['did'],
+                                          scid=tgt_params['scid'],
+                                          tid=tgt_params['tid'],
+                                          oid=target['oid'],
+                                          source_schema=source['schema'],
+                                          diff_schema=target_schema,
+                                          data=diff_dict)
+
+        return diff
 
 
 SchemaDiffRegistry(blueprint.node_type, RuleView, 'table')

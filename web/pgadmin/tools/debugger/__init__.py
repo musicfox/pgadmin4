@@ -9,13 +9,11 @@
 
 """A blueprint module implementing the debugger"""
 
-MODULE_NAME = 'debugger'
-
 import simplejson as json
 import random
 import re
 
-from flask import url_for, Response, render_template, request, session, \
+from flask import url_for, Response, render_template, request, \
     current_app
 from flask_babelex import gettext
 from flask_security import login_required
@@ -26,13 +24,15 @@ from pgadmin.utils import PgAdminModule, \
     ACCESSKEY_FIELDS as accesskey_fields
 from pgadmin.utils.ajax import bad_request
 from pgadmin.utils.ajax import make_json_response, \
-    internal_server_error
+    internal_server_error, gone
 from pgadmin.utils.driver import get_driver
 from pgadmin.settings import get_setting
 
 from config import PG_DEFAULT_DRIVER
 from pgadmin.model import db, DebuggerFunctionArguments
 from pgadmin.tools.debugger.utils.debugger_instance import DebuggerInstance
+
+MODULE_NAME = 'debugger'
 
 # Constants
 ASYNC_OK = 1
@@ -241,7 +241,7 @@ class DebuggerModule(PgAdminModule):
                 'debugger.start_execution', 'debugger.set_breakpoint',
                 'debugger.clear_all_breakpoint', 'debugger.deposit_value',
                 'debugger.select_frame', 'debugger.get_arguments',
-                'debugger.set_arguments',
+                'debugger.set_arguments', 'debugger.clear_arguments',
                 'debugger.poll_end_execution_result', 'debugger.poll_result'
                 ]
 
@@ -344,7 +344,6 @@ def init_function(node_type, sid, did, scid, fid, trid=None):
 
     # Get the server version, server type and user information
     server_type = manager.server_type
-    user = manager.user_info
 
     # Check server type is ppas or not
     ppas_server = False
@@ -392,6 +391,9 @@ def init_function(node_type, sid, did, scid, fid, trid=None):
             "Error retrieving function information from database")
         return internal_server_error(errormsg=r_set)
 
+    if len(r_set['rows']) == 0:
+        return gone(
+            gettext("The specified %s could not be found." % node_type))
     ret_status = status
 
     # Check that the function is actually debuggable...
@@ -568,21 +570,21 @@ def direct_new(trans_id):
     user_agent = UserAgent(request.headers.get('User-Agent'))
 
     function_arguments = '('
-    if de_inst.function_data is not None:
-        if 'args_name' in de_inst.function_data and \
-            de_inst.function_data['args_name'] is not None and \
-                de_inst.function_data['args_name'] != '':
-            args_name_list = de_inst.function_data['args_name'].split(",")
-            args_type_list = de_inst.function_data['args_type'].split(",")
-            index = 0
-            for args_name in args_name_list:
-                function_arguments = '{}{} {}, '.format(function_arguments,
-                                                        args_name,
-                                                        args_type_list[index])
-                index += 1
-            # Remove extra comma and space from the arguments list
-            if len(args_name_list) > 0:
-                function_arguments = function_arguments[:-2]
+    if de_inst.function_data is not None and \
+        'args_name' in de_inst.function_data and \
+        de_inst.function_data['args_name'] is not None and \
+            de_inst.function_data['args_name'] != '':
+        args_name_list = de_inst.function_data['args_name'].split(",")
+        args_type_list = de_inst.function_data['args_type'].split(",")
+        index = 0
+        for args_name in args_name_list:
+            function_arguments = '{}{} {}, '.format(function_arguments,
+                                                    args_name,
+                                                    args_type_list[index])
+            index += 1
+        # Remove extra comma and space from the arguments list
+        if len(args_name_list) > 0:
+            function_arguments = function_arguments[:-2]
 
     function_arguments += ')'
 
@@ -891,8 +893,8 @@ def start_debugger_listener(trans_id):
             data={
                 'status': False,
                 'result': gettext(
-                    'Not connected to server or connection with the server has'
-                    'been closed.'
+                    'Not connected to server or connection with the server '
+                    'has been closed.'
                 )
             }
         )
@@ -1797,14 +1799,60 @@ def set_arguments_sqlite(sid, did, scid, func_id):
 
                 db.session.add(debugger_func_args)
 
-            db.session.commit()
+        db.session.commit()
 
     except Exception as e:
+        db.session.rollback()
         current_app.logger.exception(e)
         return make_json_response(
             status=410,
             success=0,
             errormsg=e.message
+        )
+
+    return make_json_response(data={'status': True, 'result': 'Success'})
+
+
+@blueprint.route(
+    '/clear_arguments/<int:sid>/<int:did>/<int:scid>/<int:func_id>',
+    methods=['POST'], endpoint='clear_arguments'
+)
+@login_required
+def clear_arguments_sqlite(sid, did, scid, func_id):
+    """
+    clear_arguments_sqlite(sid, did, scid, func_id)
+
+    This method is responsible for clearing function arguments
+    from sqlite database
+
+    Parameters:
+        sid
+        - Server Id
+        did
+        - Database Id
+        scid
+        - Schema Id
+        func_id
+        - Function Id
+    """
+
+    try:
+        db.session.query(DebuggerFunctionArguments) \
+            .filter(DebuggerFunctionArguments.server_id == sid,
+                    DebuggerFunctionArguments.database_id == did,
+                    DebuggerFunctionArguments.schema_id == scid,
+                    DebuggerFunctionArguments.function_id == func_id) \
+            .delete()
+
+        db.session.commit()
+
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.exception(e)
+        return make_json_response(
+            status=410,
+            success=0,
+            errormsg=str(e)
         )
 
     return make_json_response(data={'status': True, 'result': 'Success'})
@@ -2076,7 +2124,7 @@ def close_debugger_session(_trans_id, close_all=False):
                                 dbg_obj['exe_conn_id'],
                                 dbg_obj['database_id'])
                         manager.release(conn_id=dbg_obj['exe_conn_id'])
-        except Exception as _:
+        except Exception:
             raise
         finally:
             de_inst.clear()

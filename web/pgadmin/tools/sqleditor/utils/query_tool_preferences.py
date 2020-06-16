@@ -100,6 +100,17 @@ def RegisterQueryToolPreferences(self):
         )
     )
 
+    self.table_view_data_by_pk = self.preference.register(
+        'Options', 'table_view_data_by_pk',
+        gettext("Sort View Data results by primary key columns?"),
+        'boolean', True,
+        category_label=gettext('Options'),
+        help_str=gettext("If set to True, data returned when using the "
+                         "View/Edit Data - All Rows option will be sorted by "
+                         "the Primary Key columns by default. When using the "
+                         "First/Last 100 Rows options, data is always sorted.")
+    )
+
     self.show_prompt_save_data_changes = self.preference.register(
         'Options', 'prompt_save_data_changes',
         gettext("Prompt to save unsaved data changes?"), 'boolean', True,
@@ -211,10 +222,10 @@ def RegisterQueryToolPreferences(self):
     self.csv_quoting = self.preference.register(
         'CSV_output', 'csv_quoting',
         gettext("CSV quoting"), 'options', 'strings',
-        category_label=gettext('CSV Output'),
-        options=[{'label': 'None', 'value': 'none'},
-                 {'label': 'All', 'value': 'all'},
-                 {'label': 'Strings', 'value': 'strings'}],
+        category_label=gettext('CSV/TXT Output'),
+        options=[{'label': gettext('None'), 'value': 'none'},
+                 {'label': gettext('All'), 'value': 'all'},
+                 {'label': gettext('Strings'), 'value': 'strings'}],
         select2={
             'allowClear': False,
             'tags': False
@@ -224,7 +235,7 @@ def RegisterQueryToolPreferences(self):
     self.csv_quote_char = self.preference.register(
         'CSV_output', 'csv_quote_char',
         gettext("CSV quote character"), 'options', '"',
-        category_label=gettext('CSV Output'),
+        category_label=gettext('CSV/TXT Output'),
         options=[{'label': '"', 'value': '"'},
                  {'label': '\'', 'value': '\''}],
         select2={
@@ -236,11 +247,11 @@ def RegisterQueryToolPreferences(self):
     self.csv_field_separator = self.preference.register(
         'CSV_output', 'csv_field_separator',
         gettext("CSV field separator"), 'options', ',',
-        category_label=gettext('CSV output'),
+        category_label=gettext('CSV/TXT output'),
         options=[{'label': ';', 'value': ';'},
                  {'label': ',', 'value': ','},
                  {'label': '|', 'value': '|'},
-                 {'label': 'Tab', 'value': '\t'}],
+                 {'label': gettext('Tab'), 'value': '\t'}],
         select2={
             'allowClear': False,
             'tags': True
@@ -250,7 +261,7 @@ def RegisterQueryToolPreferences(self):
     self.replace_nulls_with = self.preference.register(
         'CSV_output', 'csv_replace_nulls_with',
         gettext("Replace null values with"), 'text', 'NULL',
-        category_label=gettext('CSV output'),
+        category_label=gettext('CSV/TXT output'),
         help_str=gettext('Specifies the string that represents a null value '
                          'while downloading query results as CSV. You can '
                          'specify any arbitrary string to represent a '
@@ -262,9 +273,9 @@ def RegisterQueryToolPreferences(self):
         'Results_grid', 'results_grid_quoting',
         gettext("Result copy quoting"), 'options', 'strings',
         category_label=gettext('Results grid'),
-        options=[{'label': 'None', 'value': 'none'},
-                 {'label': 'All', 'value': 'all'},
-                 {'label': 'Strings', 'value': 'strings'}],
+        options=[{'label': gettext('None'), 'value': 'none'},
+                 {'label': gettext('All'), 'value': 'all'},
+                 {'label': gettext('Strings'), 'value': 'strings'}],
         select2={
             'allowClear': False,
             'tags': False
@@ -290,7 +301,7 @@ def RegisterQueryToolPreferences(self):
         options=[{'label': ';', 'value': ';'},
                  {'label': ',', 'value': ','},
                  {'label': '|', 'value': '|'},
-                 {'label': 'Tab', 'value': '\t'}],
+                 {'label': gettext('Tab'), 'value': '\t'}],
         select2={
             'allowClear': False,
             'tags': True

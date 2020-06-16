@@ -28,20 +28,14 @@ from uuid import uuid4
 from threading import Lock
 from flask import current_app, request, flash, redirect
 from flask_login import login_url
-from pgadmin.utils.ajax import make_json_response
 
-try:
-    from cPickle import dump, load
-except ImportError:
-    from pickle import dump, load
-
-try:
-    from collections import OrderedDict
-except ImportError:
-    from ordereddict import OrderedDict
+from pickle import dump, load
+from collections import OrderedDict
 
 from flask.sessions import SessionInterface, SessionMixin
 from werkzeug.datastructures import CallbackDict
+
+from pgadmin.utils.ajax import make_json_response
 
 
 def _calc_hmac(body, secret):
@@ -263,11 +257,10 @@ class FileBackedSessionManager(SessionManager):
         current_time = time.time()
         if not session.hmac_digest:
             session.sign(self.secret)
-        elif not session.force_write:
-            if session.last_write is not None and \
-                (current_time - float(session.last_write)) < \
-                    self.disk_write_delay:
-                return
+        elif not session.force_write and session.last_write is not None and \
+            (current_time - float(session.last_write)) < \
+                self.disk_write_delay:
+            return
 
         session.last_write = current_time
         session.force_write = False
@@ -352,7 +345,7 @@ def pga_unauthorised():
         else:
             login_message = lm.login_message
 
-    if not lm.login_view or request.is_xhr:
+    if not lm.login_view:
         # Only 401 is not enough to distinguish pgAdmin login is required.
         # There are other cases when we return 401. For eg. wrong password
         # supplied while connecting to server.
@@ -408,6 +401,6 @@ def cleanup_session_files():
                     current_app.permanent_session_lifetime + \
                     datetime.timedelta(days=1)
 
-                if file_expiration_time <= datetime.datetime.now():
-                    if os.path.exists(absolute_file_name):
-                        os.unlink(absolute_file_name)
+                if file_expiration_time <= datetime.datetime.now() and \
+                        os.path.exists(absolute_file_name):
+                    os.unlink(absolute_file_name)

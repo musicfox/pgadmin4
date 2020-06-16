@@ -14,7 +14,7 @@ import sys
 from selenium import webdriver
 from selenium.common.exceptions import NoSuchElementException, \
     WebDriverException, TimeoutException, NoSuchWindowException, \
-    StaleElementReferenceException
+    StaleElementReferenceException, ElementNotInteractableException
 from selenium.webdriver import ActionChains
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support import expected_conditions as EC
@@ -71,12 +71,24 @@ class PgadminPage:
     def add_server(self, server_config):
         self.find_by_xpath(
             "//*[@class='aciTreeText' and contains(.,'Servers')]").click()
-        self.driver.find_element_by_link_text("Object").click()
-        ActionChains(self.driver) \
-            .move_to_element(self.driver.find_element_by_link_text("Create")) \
-            .perform()
-        self.find_by_partial_link_text("Server...").click()
 
+        if self.driver.name == 'firefox':
+            ActionChains(self.driver).context_click(self.find_by_xpath(
+                "//*[@class='aciTreeText' and contains(.,'Servers')]"))\
+                .perform()
+            ActionChains(self.driver).move_to_element(
+                self.find_by_xpath("//li/span[text()='Create']")).perform()
+            self.find_by_xpath("//li/span[text()='Server...']").click()
+        else:
+            self.driver.find_element_by_link_text("Object").click()
+            ActionChains(self.driver).move_to_element(
+                self.driver.find_element_by_link_text("Create")).perform()
+            self.find_by_partial_link_text("Server...").click()
+
+        WebDriverWait(self.driver, 5).until(EC.visibility_of_element_located(
+            (By.XPATH, "//div[text()='Create - Server']")))
+
+        # After server dialogue opens
         self.fill_input_by_field_name("name", server_config['name'],
                                       loose_focus=True)
         self.find_by_partial_link_text("Connection").click()
@@ -88,11 +100,17 @@ class PgadminPage:
             (By.CSS_SELECTOR, "button[type='save'].btn.btn-primary")))
         self.find_by_css_selector("button[type='save'].btn.btn-primary").\
             click()
-
-        WebDriverWait(self.driver, 10).until(
-            EC.visibility_of_element_located(
-                (By.XPATH,
-                 "//*[@id='tree']//*[.='" + server_config['name'] + "']")))
+        try:
+            WebDriverWait(self.driver, 10).until(
+                EC.visibility_of_element_located(
+                    (By.XPATH,
+                     "//*[@id='tree']//*[.='" + server_config['name'] + "']")))
+        except TimeoutException:
+            self.toggle_open_servers_group()
+            WebDriverWait(self.driver, 10).until(
+                EC.visibility_of_element_located(
+                    (By.XPATH,
+                     "//*[@id='tree']//*[.='" + server_config['name'] + "']")))
 
     def open_query_tool(self):
         self.driver.find_element_by_link_text("Tools").click()
@@ -156,6 +174,11 @@ class PgadminPage:
             self.click_element(self.find_by_xpath(
                 '//button[contains(@class, "ajs-button") and '
                 'contains(.,"Don\'t save")]'))
+
+            if self.check_if_element_exist_by_xpath(
+                    "//button[text()='Rollback']", 1):
+                self.click_element(
+                    self.find_by_xpath("//button[text()='Rollback']"))
         self.driver.switch_to.default_content()
 
     def clear_query_tool(self):
@@ -194,6 +217,12 @@ class PgadminPage:
     def check_execute_option(self, option):
         """"This function will check auto commit or auto roll back based on
         user input. If button is already checked, no action will be taken"""
+        query_options = self.driver.find_element_by_css_selector(
+            QueryToolLocators.btn_query_dropdown)
+        expanded = query_options.get_attribute("aria-expanded")
+        if expanded == "false":
+            query_options.click()
+
         retry = 3
         if option == 'auto_commit':
             check_status = self.driver.find_element_by_css_selector(
@@ -226,6 +255,12 @@ class PgadminPage:
     def uncheck_execute_option(self, option):
         """"This function will uncheck auto commit or auto roll back based on
         user input. If button is already unchecked, no action will be taken"""
+        query_options = self.driver.find_element_by_css_selector(
+            QueryToolLocators.btn_query_dropdown)
+        expanded = query_options.get_attribute("aria-expanded")
+        if expanded == "false":
+            query_options.click()
+
         retry = 3
         if option == 'auto_commit':
             check_status = self.driver.find_element_by_css_selector(
@@ -271,7 +306,7 @@ class PgadminPage:
         self.click_element(object_menu_item)
         delete_menu_item = self.find_by_partial_link_text("Remove Server")
         self.click_element(delete_menu_item)
-        self.click_modal('OK')
+        self.click_modal('Yes')
 
     def select_tree_item(self, tree_item_text):
         item = self.find_by_xpath(
@@ -910,14 +945,30 @@ class PgadminPage:
                     return element
             except (NoSuchElementException, WebDriverException):
                 return False
-
-        codemirror_ele = WebDriverWait(
-            self.driver, timeout=self.timeout, poll_frequency=0.01)\
-            .until(find_codemirror,
-                   "Timed out waiting for codemirror to appear")
-
         time.sleep(1)
-        codemirror_ele.click()
+        self.wait_for_query_tool_loading_indicator_to_disappear(12)
+
+        retry = 2
+        while retry > 0:
+            try:
+                self.driver.switch_to.default_content()
+                WebDriverWait(self.driver, 10).until(
+                    EC.frame_to_be_available_and_switch_to_it(
+                        (By.TAG_NAME, "iframe")))
+                self.find_by_xpath("//a[text()='Query Editor']").click()
+
+                codemirror_ele = WebDriverWait(
+                    self.driver, timeout=self.timeout, poll_frequency=0.01) \
+                    .until(find_codemirror,
+                           "Timed out waiting for codemirror to appear")
+                codemirror_ele.click()
+                retry = 0
+            except WebDriverException as e:
+                print("Exception in filling code mirror {0} ".format(retry))
+                print(str(e))
+                if retry == 0:
+                    raise e
+                retry -= 1
 
         # Use send keys if input_keys true, else use javascript to set content
         if input_keys:
@@ -1161,3 +1212,38 @@ class PgadminPage:
             except Exception:
                 attempt += 1
         return click_status
+
+    def paste_values(self, el=None):
+        """
+        Function paste values in scratch pad
+        :param el:
+        """
+        actions = ActionChains(self.driver)
+        if "platform" in self.driver.capabilities:
+            platform = (self.driver.capabilities["platform"]).lower()
+        elif "platformName" in self.driver.capabilities:
+            platform = (self.driver.capabilities["platformName"]).lower()
+        if el:
+            # Must step
+            el.click()
+            if 'mac' in platform:
+                # FF step
+                el.send_keys(Keys.COMMAND + "v")
+                # Chrome Step
+                actions.key_down(Keys.SHIFT)
+                actions.send_keys(Keys.INSERT)
+                actions.key_up(Keys.SHIFT)
+                actions.perform()
+            else:
+                el.send_keys(Keys.CONTROL + "v")
+
+    def wait_for_element_to_be_visible(self, driver, xpath, time_value=20):
+        """This will wait until an element is visible on page"""
+        element_located_status = False
+        try:
+            if WebDriverWait(driver, time_value).until(
+                    EC.visibility_of_element_located((By.XPATH, xpath))):
+                element_located_status = True
+        except TimeoutException:
+            element_located_status = False
+        return element_located_status

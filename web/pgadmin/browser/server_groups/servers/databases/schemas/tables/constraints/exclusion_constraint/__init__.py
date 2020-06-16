@@ -24,10 +24,6 @@ from pgadmin.browser.server_groups.servers.databases.schemas.tables.\
     constraints.exclusion_constraint import utils as exclusion_utils
 from pgadmin.utils.driver import get_driver
 from config import PG_DEFAULT_DRIVER
-from pgadmin.utils import IS_PY2
-# If we are in Python3
-if not IS_PY2:
-    unicode = str
 
 
 class ExclusionConstraintModule(ConstraintTypeModule):
@@ -225,6 +221,10 @@ class ExclusionConstraintView(PGChildNodeView):
                 kwargs['sid']
             )
             self.conn = self.manager.connection(did=kwargs['did'])
+            self.datlastsysoid = \
+                self.manager.db_info[kwargs['did']]['datlastsysoid'] \
+                if self.manager.db_info is not None and \
+                kwargs['did'] in self.manager.db_info else 0
 
             self.template_path = 'exclusion_constraint/sql/#{0}#'.format(
                 self.manager.version)
@@ -274,6 +274,8 @@ class ExclusionConstraintView(PGChildNodeView):
         result = res
         if exid:
             result = res[0]
+        result['is_sys_obj'] = (
+            result['oid'] <= self.datlastsysoid)
 
         return ajax_response(
             response=result,
@@ -338,6 +340,9 @@ class ExclusionConstraintView(PGChildNodeView):
                               did=did,
                               tid=tid)
         status, res = self.conn.execute_dict(SQL)
+
+        for row in res['rows']:
+            row['_type'] = self.node_type
 
         return res['rows']
 
@@ -491,21 +496,14 @@ class ExclusionConstraintView(PGChildNodeView):
                 data[k] = v
 
         for arg in required_args:
-            if arg not in data:
+            if arg not in data or \
+                    (isinstance(data[arg], list) and len(data[arg]) < 1):
                 return make_json_response(
                     status=400,
                     success=0,
                     errormsg=_(
-                        "Could not find required parameter (%s)." % str(arg)
-                    )
-                )
-            elif isinstance(data[arg], list) and len(data[arg]) < 1:
-                return make_json_response(
-                    status=400,
-                    success=0,
-                    errormsg=_(
-                        "Could not find required parameter (%s)." % str(arg)
-                    )
+                        "Could not find required parameter ({})."
+                    ).format(arg)
                 )
 
         data['schema'] = self.schema
@@ -599,7 +597,7 @@ class ExclusionConstraintView(PGChildNodeView):
             data['table'] = self.table
             sql, name = \
                 exclusion_utils.get_sql(self.conn, data, did, tid, exid)
-            if not isinstance(sql, (str, unicode)):
+            if not isinstance(sql, str):
                 return sql
             sql = sql.strip('\n').strip(' ')
             status, res = self.conn.execute_scalar(sql)
@@ -731,7 +729,7 @@ class ExclusionConstraintView(PGChildNodeView):
         try:
             sql, name = \
                 exclusion_utils.get_sql(self.conn, data, did, tid, exid)
-            if not isinstance(sql, (str, unicode)):
+            if not isinstance(sql, str):
                 return sql
             sql = sql.strip('\n').strip(' ')
             if sql == '':

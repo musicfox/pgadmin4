@@ -58,6 +58,9 @@ define('pgadmin.node.function', [
     },{
       id: 'argmode', label: gettext('Mode'), type: 'options',
       control: 'node-ajax-options', cellHeaderClasses:'width_percent_20',
+      cell: 'node-ajax-options', select2: {
+        allowClear: false,
+      },
       options:[
         {'label': 'IN', 'value': 'IN'},
         {'label': 'OUT', 'value': 'OUT'},
@@ -223,20 +226,18 @@ define('pgadmin.node.function', [
         },{
           id: 'proargs', label: gettext('Arguments'), cell: 'string',
           type: 'text', group: gettext('Definition'), mode: ['properties'],
-          disabled: 'isDisabled',
         },{
           id: 'proargtypenames', label: gettext('Signature arguments'), cell:
           'string', type: 'text', group: gettext('Definition'), mode: ['properties'],
-          disabled: 'isDisabled',
         },{
           id: 'prorettypename', label: gettext('Return type'), cell: 'string',
           control: 'node-ajax-options', type: 'text', group: gettext('Definition'),
-          url: 'get_types', disabled: 'isDisabled', first_empty: true,
+          url: 'get_types', readonly: 'isReadonly', first_empty: true,
           mode: ['create'], visible: 'isVisible',
         },{
           id: 'prorettypename', label: gettext('Return type'), cell: 'string',
           type: 'text', group: gettext('Definition'),
-          mode: ['properties', 'edit'], disabled: 'isDisabled', visible: 'isVisible',
+          mode: ['properties', 'edit'], readonly: 'isReadonly', visible: 'isVisible',
         },  {
           id: 'lanname', label: gettext('Language'), cell: 'string',
           control: 'node-ajax-options', type: 'text', group: gettext('Definition'),
@@ -305,10 +306,10 @@ define('pgadmin.node.function', [
           select2: {allowClear: false},
         },{
           id: 'procost', label: gettext('Estimated cost'), group: gettext('Options'),
-          cell:'string', type: 'text', disabled: 'isDisabled', deps: ['lanname'],
+          cell:'string', type: 'text', readonly: 'isReadonly', deps: ['lanname'],
         },{
           id: 'prorows', label: gettext('Estimated rows'), type: 'text',
-          deps: ['proretset'], visible: 'isVisible', disabled: 'isDisabled',
+          deps: ['proretset'], visible: 'isVisible', readonly: 'isReadonly',
           group: gettext('Options'),
         },{
           id: 'proleakproof', label: gettext('Leak proof?'),
@@ -366,7 +367,7 @@ define('pgadmin.node.function', [
 
           if (_.isUndefined(this.get('name')) || String(this.get('name')).replace(/^\s+|\s+$/g, '') == '') {
             err['name'] = gettext('Name cannot be empty.');
-            errmsg = errmsg || err['name'];
+            errmsg = err['name'];
           }
 
           if (_.isUndefined(this.get('funcowner')) || String(this.get('funcowner')).replace(/^\s+|\s+$/g, '') == '') {
@@ -432,26 +433,31 @@ define('pgadmin.node.function', [
           if (this.name == 'sysproc') { return false; }
           return true;
         },
-        isDisabled: function(m) {
+        isDisabled: function() {
           if(this.node_info && 'catalog' in this.node_info) {
             return true;
           }
+          if(this.name === 'prosupportfunc'){
+            var item = pgAdmin.Browser.tree.selected();
+            if(pgAdmin.Browser.Nodes['function'].getTreeNodeHierarchy(item).server.user.is_superuser)
+              return false;
+            return true;
+          } else {
+            return false;
+          }
+        },
+        isReadonly: function(m) {
           switch(this.name){
           case 'proargs':
           case 'proargtypenames':
-          case 'prorettypename':
           case 'proretset':
           case 'proiswindow':
+          case 'prorettypename':
             return !m.isNew();
           case 'prorows':
             if(m.get('proretset') == true) {
               return false;
             }
-            return true;
-          case 'prosupportfunc':
-            var item = pgAdmin.Browser.tree.selected();
-            if(pgAdmin.Browser.Nodes['function'].getTreeNodeHierarchy(item).server.user.is_superuser)
-              return false;
             return true;
           default:
             return false;

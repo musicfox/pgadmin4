@@ -113,7 +113,7 @@ define('pgadmin.node.view', [
           type: 'text', disabled: 'notInSchema',
         },{
           id: 'oid', label: gettext('OID'), cell: 'string',
-          type: 'text', disabled: true, mode: ['properties'],
+          type: 'text', mode: ['properties'],
         },{
           id: 'owner', label: gettext('Owner'), cell: 'string', control: 'node-list-by-name',
           node: 'role', disabled: 'notInSchema', select2: { allowClear: false },
@@ -124,7 +124,7 @@ define('pgadmin.node.view', [
           select2: { allowClear: false }, cache_node: 'database',
         },{
           id: 'system_view', label: gettext('System view?'), cell: 'string',
-          type: 'switch', disabled: true, mode: ['properties'],
+          type: 'switch', mode: ['properties'],
         },{
           id: 'acl', label: gettext('Privileges'),
           mode: ['properties'], type: 'text', group: gettext('Security'),
@@ -154,8 +154,50 @@ define('pgadmin.node.view', [
           id: 'definition', label: gettext('Code'), cell: 'string',
           type: 'text', mode: ['create', 'edit'], group: gettext('Code'),
           tabPanelCodeClass: 'sql-code-control',
-          control: Backform.SqlCodeControl,
           disabled: 'notInSchema',
+          control: Backform.SqlCodeControl.extend({
+            onChange: function() {
+              Backform.SqlCodeControl.prototype.onChange.apply(this, arguments);
+
+              if (!this.model || !(
+                this.model.changed &&
+                this.model.node_info.server.server_type == 'pg' &&
+                // No need to check this when creating a view
+                this.model.get('oid') !== undefined
+              ) || !(
+                this.model.origSessAttrs &&
+                this.model.changed.definition != this.model.origSessAttrs.definition
+              )) {
+                this.model.warn_text = undefined;
+                return;
+              }
+
+              let old_def = this.model.origSessAttrs.definition &&
+                this.model.origSessAttrs.definition.replace(
+                  /\s/gi, ''
+                ).split('FROM'),
+                new_def = [];
+
+              if (this.model.changed.definition !== undefined) {
+                new_def = this.model.changed.definition.replace(
+                  /\s/gi, ''
+                ).split('FROM');
+              }
+
+              if ((old_def.length != new_def.length) || (
+                old_def.length > 1 && (
+                  old_def[0] != new_def[0]
+                )
+              )) {
+                this.model.warn_text = gettext(
+                  'Changing the columns in a view requires dropping and re-creating the view. This may fail if other objects are dependent upon this view, or may cause procedural functions to fail if they are not modified to take account of the changes.'
+                ) + '<br><br><b>' + gettext('Do you wish to continue?') +
+                '</b>';
+              } else {
+                this.model.warn_text = undefined;
+              }
+            },
+          }),
         }, pgBrowser.SecurityGroupSchema, {
           // Add Privilege Control
           id: 'datacl', label: gettext('Privileges'), type: 'collection',

@@ -1,3 +1,12 @@
+##########################################################################
+#
+# pgAdmin 4 - PostgreSQL Tools
+#
+# Copyright (C) 2013 - 2020, The pgAdmin Development Team
+# This software is released under the PostgreSQL Licence
+#
+##########################################################################
+
 from __future__ import print_function
 from pgadmin.browser.server_groups.servers.databases.tests import \
     utils as database_utils
@@ -5,13 +14,7 @@ from pgadmin.utils.route import BaseTestGenerator
 from regression import parent_node_dict
 from regression.python_test_utils import test_utils as utils
 from . import utils as cast_utils
-
-import sys
-
-if sys.version_info < (3, 3):
-    from mock import patch
-else:
-    from unittest.mock import patch
+from unittest.mock import patch
 
 
 class CastsGetNodeTestCase(BaseTestGenerator):
@@ -59,23 +62,14 @@ class CastsGetNodeTestCase(BaseTestGenerator):
                     if self.is_list:
                         response = cast_utils.api_get_cast_node(self, "")
                         cast_utils.assert_status_code(self, response)
-                        # act_res = response.status_code
-                        # exp_res = self.expected_data["status_code"]
-                        # self.assertEquals(act_res, exp_res)
 
                         cast_utils.assert_error_message(self, response)
-
-                        # act_res = response.json["errormsg"]
-                        # exp_res = self.expected_data["error_msg"]
-                        # self.assertEquals(act_res, exp_res)
 
                     else:
                         response = cast_utils.api_get_cast_node(self,
                                                                 self.cast_id)
                         cast_utils.assert_status_code(self, response)
-                        # act_res = response.status_code
-                        # exp_res = self.expected_data["status_code"]
-                        # self.assertEquals(act_res, exp_res)
+
             else:
                 self.cast_id = 12893
                 response = cast_utils.api_get_cast(self, self.cast_id)

@@ -129,7 +129,7 @@ let FilterDialog = {
               '      <div class="pr-2"> ' +
               '        <i class="fa fa-exclamation-triangle text-danger" aria-hidden="true"></i> ' +
               '      </div> ' +
-              '      <div class="alert-text" role="status"></div> ' +
+              '      <div class="alert-text" role="alert"></div> ' +
               '    </div> ' +
               '  </div> ' +
               '</div>').appendTo($container);
@@ -139,7 +139,7 @@ let FilterDialog = {
                 `<div id="show_filter_progress" class="pg-sp-container sql-editor-busy-fetching d-none">
                   <div class="pg-sp-content">
                       <div class="row"><div class="col-12 pg-sp-icon sql-editor-busy-icon"></div></div>
-                      <div class="row"><div class="col-12 pg-sp-text sql-editor-busy-text">${gettext('Loading data...')}</div></div>
+                      <div class="row"><div class="col-12 pg-sp-text sql-editor-busy-text">` + gettext('Loading data...') + `</div></div>
                   </div>
               </div>`
               ).appendTo($container);

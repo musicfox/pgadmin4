@@ -12,15 +12,12 @@ import re
 
 from flask import Flask, render_template
 from jinja2 import FileSystemLoader
+from collections import OrderedDict
 
 from pgadmin import VersionedTemplateLoader
 from pgadmin.utils.route import BaseTestGenerator
 from pgadmin.utils.driver import get_driver
 from config import PG_DEFAULT_DRIVER
-try:
-    from collections import OrderedDict
-except ImportError:
-    from ordereddict import OrderedDict
 
 
 class TestViewDataTemplates(BaseTestGenerator):
@@ -45,7 +42,8 @@ class TestViewDataTemplates(BaseTestGenerator):
                     nsp_name='test_schema',
                     data_type={'text': 'text', 'id': 'integer'},
                     pk_names='id',
-                    has_oids=False
+                    has_oids=False,
+                    type_cast_required={'text': 'True', 'id': 'True'}
                 ),
                 insert_expected_return_value='INSERT INTO'
                                              ' test_schema.test_table'
@@ -76,7 +74,8 @@ class TestViewDataTemplates(BaseTestGenerator):
                     nsp_name='test_schema',
                     data_type={'text': 'text', 'id': 'integer'},
                     pk_names='id, text',
-                    has_oids=False
+                    has_oids=False,
+                    type_cast_required={'text': 'True', 'id': 'True'}
                 ),
                 insert_expected_return_value='INSERT INTO'
                                              ' test_schema.test_table'
@@ -109,7 +108,8 @@ class TestViewDataTemplates(BaseTestGenerator):
                     nsp_name='test_schema',
                     data_type={'text': 'text', 'id': 'integer'},
                     pk_names='id',
-                    has_oids=True
+                    has_oids=True,
+                    type_cast_required={'text': 'True', 'id': 'True'}
                 ),
                 insert_expected_return_value='INSERT INTO'
                                              ' test_schema.test_table'
@@ -140,7 +140,8 @@ class TestViewDataTemplates(BaseTestGenerator):
                     nsp_name='test_schema',
                     data_type={'text': 'text', 'id': 'integer'},
                     pk_names=None,
-                    has_oids=True
+                    has_oids=True,
+                    type_cast_required={'text': 'True', 'id': 'True'}
                 ),
                 insert_expected_return_value='INSERT INTO'
                                              ' test_schema.test_table'

@@ -22,10 +22,6 @@ from pgadmin.utils.ajax import make_json_response, \
 from pgadmin.utils.ajax import precondition_required
 from pgadmin.utils.driver import get_driver
 from config import PG_DEFAULT_DRIVER
-from pgadmin.utils import IS_PY2
-# If we are in Python3
-if not IS_PY2:
-    unicode = str
 
 
 class TablespaceModule(CollectionNodeModule):
@@ -111,6 +107,10 @@ class TablespaceView(PGChildNodeView):
                 kwargs['sid']
             )
             self.conn = self.manager.connection()
+            self.datlastsysoid = \
+                self.manager.db_info[self.manager.did]['datlastsysoid'] \
+                if self.manager.db_info is not None and \
+                self.manager.did in self.manager.db_info else 0
 
             # If DB not connected then return error to browser
             if not self.conn.connected():
@@ -267,6 +267,8 @@ class TablespaceView(PGChildNodeView):
 
         # Making copy of output for future use
         copy_data = dict(res['rows'][0])
+        copy_data['is_sys_obj'] = (
+            copy_data['oid'] <= self.datlastsysoid)
         copy_data = self._formatter(copy_data, tsid)
 
         return ajax_response(
@@ -295,9 +297,8 @@ class TablespaceView(PGChildNodeView):
                     status=410,
                     success=0,
                     errormsg=gettext(
-                        "Could not find the required parameter (%s)." %
-                        required_args[arg]
-                    )
+                        "Could not find the required parameter ({})."
+                    ).format(arg)
                 )
 
         # To format privileges coming from client
@@ -360,7 +361,7 @@ class TablespaceView(PGChildNodeView):
         try:
             SQL, name = self.get_sql(gid, sid, data, tsid)
             # Most probably this is due to error
-            if not isinstance(SQL, (str, unicode)):
+            if not isinstance(SQL, str):
                 return SQL
 
             SQL = SQL.strip('\n').strip(' ')
@@ -455,7 +456,7 @@ class TablespaceView(PGChildNodeView):
 
         sql, name = self.get_sql(gid, sid, data, tsid)
         # Most probably this is due to error
-        if not isinstance(sql, (str, unicode)):
+        if not isinstance(sql, str):
             return sql
 
         sql = sql.strip('\n').strip(' ')
@@ -485,7 +486,7 @@ class TablespaceView(PGChildNodeView):
 
             if len(res['rows']) == 0:
                 return gone(
-                    _("Could not find the tablespace on the server.")
+                    gettext("Could not find the tablespace on the server.")
                 )
 
             # Making copy of output for further processing
@@ -550,7 +551,7 @@ class TablespaceView(PGChildNodeView):
 
         if len(res['rows']) == 0:
             return gone(
-                _("Could not find the tablespace on the server.")
+                gettext("Could not find the tablespace on the server.")
             )
         # Making copy of output for future use
         old_data = dict(res['rows'][0])

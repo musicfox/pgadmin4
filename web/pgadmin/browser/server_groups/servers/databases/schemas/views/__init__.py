@@ -10,12 +10,13 @@
 """Implements View and Materialized View Node"""
 
 import copy
+import re
 from functools import wraps
 
 import simplejson as json
 from flask import render_template, request, jsonify, current_app
 from flask_babelex import gettext
-
+from flask_security import current_user
 import pgadmin.browser.server_groups.servers.databases as databases
 from config import PG_DEFAULT_DRIVER
 from pgadmin.browser.server_groups.servers.databases.schemas.utils import \
@@ -28,6 +29,9 @@ from pgadmin.utils.ajax import make_json_response, internal_server_error, \
 from pgadmin.utils.driver import get_driver
 from pgadmin.tools.schema_diff.node_registry import SchemaDiffRegistry
 from pgadmin.tools.schema_diff.compare import SchemaDiffObjectCompare
+from pgadmin.utils import html, does_utility_exist
+from pgadmin.model import Server
+from pgadmin.misc.bgprocess.processes import BatchProcess, IProcessDesc
 
 
 """
@@ -125,6 +129,53 @@ class ViewModule(SchemaChildModule):
             snippets.extend(submodule.csssnippets)
 
         return snippets
+
+
+class Message(IProcessDesc):
+    def __init__(self, _sid, _data, _query):
+        self.sid = _sid
+        self.data = _data
+        self.query = _query
+
+    @property
+    def message(self):
+        res = gettext("Refresh Materialized View")
+        opts = []
+        if not self.data['is_with_data']:
+            opts.append(gettext("With no data"))
+        else:
+            opts.append(gettext("With data"))
+        if self.data['is_concurrent']:
+            opts.append(gettext("Concurrently"))
+
+        return res + " ({0})".format(', '.join(str(x) for x in opts))
+
+    @property
+    def type_desc(self):
+        return gettext("Refresh Materialized View")
+
+    def details(self, cmd, args):
+        res = gettext("Refresh Materialized View ({0})")
+        opts = []
+        if not self.data['is_with_data']:
+            opts.append(gettext("WITH NO DATA"))
+        else:
+            opts.append(gettext("WITH DATA"))
+
+        if self.data['is_concurrent']:
+            opts.append(gettext("CONCURRENTLY"))
+
+        res = res.format(', '.join(str(x) for x in opts))
+
+        res = '<div>' + html.safe_str(res)
+
+        res += '</div><div class="py-1">'
+        res += gettext("Running Query:")
+        res += '<div class="pg-bg-cmd enable-selection p-1">'
+        res += html.safe_str(self.query)
+        res += '</div></div>'
+
+        return res
 
 
 class MViewModule(ViewModule):
@@ -298,7 +349,7 @@ class ViewNode(PGChildNodeView, VacuumSettings, SchemaDiffObjectCompare):
             {'get': 'get_toast_table_vacuum'}]
     })
 
-    keys_to_ignore = ['oid', 'schema', 'xmin']
+    keys_to_ignore = ['oid', 'schema', 'xmin', 'oid-2']
 
     def __init__(self, *args, **kwargs):
         """
@@ -492,8 +543,8 @@ class ViewNode(PGChildNodeView, VacuumSettings, SchemaDiffObjectCompare):
                     status=410,
                     success=0,
                     errormsg=gettext(
-                        "Could not find the required parameter (%s)." % arg
-                    )
+                        "Could not find the required parameter ({})."
+                    ).format(arg)
                 )
         try:
             SQL, nameOrError = self.getSQL(gid, sid, did, data)
@@ -716,7 +767,6 @@ class ViewNode(PGChildNodeView, VacuumSettings, SchemaDiffObjectCompare):
             if 'schema' not in data:
                 data['schema'] = res['rows'][0]['schema']
 
-            acls = []
             try:
                 acls = render_template(
                     "/".join([self.template_path, 'sql/allowed_privs.json'])
@@ -735,11 +785,53 @@ class ViewNode(PGChildNodeView, VacuumSettings, SchemaDiffObjectCompare):
                             data[aclcol][key] = parse_priv_to_db(
                                 data[aclcol][key], allowedacl['acl']
                             )
+            data['del_sql'] = False
+            old_data['acl_sql'] = ''
+
+            if 'definition' in data and self.manager.server_type == 'pg':
+                new_def = re.sub(r"\W", "", data['definition']).split('FROM')
+                old_def = re.sub(r"\W", "", res['rows'][0]['definition']
+                                 ).split('FROM')
+                if 'definition' in data and (
+                        len(old_def) > 1 or len(new_def) > 1
+                ) and (
+                        old_def[0] != new_def[0] and
+                        old_def[0] not in new_def[0]
+                ):
+                    data['del_sql'] = True
+
+                    # If we drop and recreate the view, the
+                    # privileges must be restored
+
+                    # Fetch all privileges for view
+                    sql_acl = render_template("/".join(
+                        [self.template_path, 'sql/acl.sql']), vid=vid)
+                    status, dataclres = self.conn.execute_dict(sql_acl)
+                    if not status:
+                        return internal_server_error(errormsg=res)
+
+                    for row in dataclres['rows']:
+                        priv = parse_priv_from_db(row)
+                        res['rows'][0].setdefault(row['deftype'], []
+                                                  ).append(priv)
+
+                    old_data.update(res['rows'][0])
+
+                    # Privileges
+                    for aclcol in acls:
+                        if aclcol in old_data:
+                            allowedacl = acls[aclcol]
+                            old_data[aclcol] = parse_priv_to_db(
+                                old_data[aclcol], allowedacl['acl'])
+
+                    old_data['acl_sql'] = render_template("/".join(
+                        [self.template_path, 'sql/grant.sql']), data=old_data)
 
             try:
                 SQL = render_template("/".join(
                     [self.template_path, 'sql/update.sql']), data=data,
                     o_data=old_data, conn=self.conn)
+
             except Exception as e:
                 current_app.logger.exception(e)
                 return None, internal_server_error(errormsg=str(e))
@@ -1145,6 +1237,9 @@ class ViewNode(PGChildNodeView, VacuumSettings, SchemaDiffObjectCompare):
 
         result = res['rows'][0]
         if diff_schema:
+            result['definition'] = result['definition'].replace(
+                result['schema'],
+                diff_schema)
             result['schema'] = diff_schema
 
         # sending result to formtter
@@ -1437,6 +1532,13 @@ class ViewNode(PGChildNodeView, VacuumSettings, SchemaDiffObjectCompare):
             if diff_schema:
                 data['schema'] = diff_schema
             sql, nameOrError = self.getSQL(gid, sid, did, data, oid)
+            if sql.find('DROP VIEW') != -1:
+                sql = gettext("""
+-- Changing the columns in a view requires dropping and re-creating the view.
+-- This may fail if other objects are dependent upon this view,
+-- or may cause procedural functions to fail if they are not modified to
+-- take account of the changes.
+""") + sql
         else:
             if drop_sql:
                 sql = self.delete(gid=gid, sid=sid, did=did,
@@ -1452,7 +1554,8 @@ class ViewNode(PGChildNodeView, VacuumSettings, SchemaDiffObjectCompare):
 
 # Override the operations for materialized view
 mview_operations = {
-    'refresh_data': [{'put': 'refresh_data'}, {}]
+    'refresh_data': [{'put': 'refresh_data'}, {}],
+    'check_utility_exists': [{'get': 'check_utility_exists'}, {}]
 }
 mview_operations.update(ViewNode.operations)
 
@@ -1516,27 +1619,17 @@ class MViewNode(ViewNode, VacuumSettings):
         This function will generate sql from model data
         """
         if vid is not None:
-            SQL = render_template("/".join(
-                [self.template_path, 'sql/properties.sql']),
-                did=did,
-                vid=vid,
-                datlastsysoid=self.datlastsysoid
-            )
-            status, res = self.conn.execute_dict(SQL)
-            if not status:
-                return None, internal_server_error(errormsg=res)
-            if len(res['rows']) == 0:
-                return None, gone(
-                    gettext(
-                        "Could not find the materialized view on the server.")
-                )
+            status, res = self._fetch_properties(did, None, vid)
 
-            old_data = res['rows'][0]
+            if not status:
+                return res
+
+            old_data = res
 
             if 'name' not in data:
-                data['name'] = res['rows'][0]['name']
+                data['name'] = res['name']
             if 'schema' not in data:
-                data['schema'] = res['rows'][0]['schema']
+                data['schema'] = res['schema']
 
             # merge vacuum lists into one
             data['vacuum_data'] = {}
@@ -1544,75 +1637,32 @@ class MViewNode(ViewNode, VacuumSettings):
             data['vacuum_data']['reset'] = []
 
             # table vacuum: separate list of changed and reset data for
-            if ('vacuum_table' in data):
-                if ('changed' in data['vacuum_table']):
-                    for item in data['vacuum_table']['changed']:
-                        if 'value' in item.keys():
-                            if item['value'] is None:
-                                if old_data[item['name']] != item['value']:
-                                    data['vacuum_data']['reset'].append(item)
-                            else:
-                                if (old_data[item['name']] is None or
-                                    (float(old_data[item['name']]) != float(
-                                        item['value']))):
-                                    data['vacuum_data']['changed'].append(item)
-
-            if (
-                'autovacuum_enabled' in data and
-                old_data['autovacuum_enabled'] is not None
-            ):
-                if (
-                    data['autovacuum_enabled'] !=
-                    old_data['autovacuum_enabled']
-                ):
-                    data['vacuum_data']['changed'].append(
-                        {'name': 'autovacuum_enabled',
-                         'value': data['autovacuum_enabled']})
-            elif (
-                'autovacuum_enabled' in data and
-                'autovacuum_custom' in data and
-                old_data['autovacuum_enabled'] is None and data[
-                    'autovacuum_custom']):
-                data['vacuum_data']['changed'].append(
-                    {'name': 'autovacuum_enabled',
-                     'value': data['autovacuum_enabled']})
+            if 'vacuum_table' in data and 'changed' in data['vacuum_table']:
+                for item in data['vacuum_table']['changed']:
+                    if 'value' in item.keys():
+                        if item['value'] is None:
+                            if old_data[item['name']] != item['value']:
+                                data['vacuum_data']['reset'].append(item)
+                        else:
+                            if (old_data[item['name']] is None or
+                                (float(old_data[item['name']]) != float(
+                                    item['value']))):
+                                data['vacuum_data']['changed'].append(item)
 
             # toast autovacuum: separate list of changed and reset data
-            if ('vacuum_toast' in data):
-                if ('changed' in data['vacuum_toast']):
-                    for item in data['vacuum_toast']['changed']:
-                        if 'value' in item.keys():
-                            toast_key = 'toast_' + item['name']
-                            item['name'] = 'toast.' + item['name']
-                            if item['value'] is None:
-                                if old_data[toast_key] != item['value']:
-                                    data['vacuum_data']['reset'].append(item)
-                            else:
-                                if (old_data[toast_key] is None or
-                                    (float(old_data[toast_key]) != float(
-                                        item['value']))):
-                                    data['vacuum_data']['changed'].append(item)
-
-            if (
-                'toast_autovacuum_enabled' in data and
-                old_data['toast_autovacuum_enabled'] is not None
-            ):
-                if (
-                    data['toast_autovacuum_enabled'] !=
-                    old_data['toast_autovacuum_enabled']
-                ):
-                    data['vacuum_data']['changed'].append(
-                        {'name': 'toast.autovacuum_enabled',
-                         'value': data['toast_autovacuum_enabled']})
-            elif (
-                'toast_autovacuum_enabled' in data and
-                'toast_autovacuum' in data and
-                old_data['toast_autovacuum_enabled'] is None and
-                data['toast_autovacuum']
-            ):
-                data['vacuum_data']['changed'].append(
-                    {'name': 'toast.autovacuum_enabled',
-                     'value': data['toast_autovacuum_enabled']})
+            if 'vacuum_toast' in data and 'changed' in data['vacuum_toast']:
+                for item in data['vacuum_toast']['changed']:
+                    if 'value' in item.keys():
+                        toast_key = 'toast_' + item['name']
+                        item['name'] = 'toast.' + item['name']
+                        if item['value'] is None:
+                            if old_data[toast_key] != item['value']:
+                                data['vacuum_data']['reset'].append(item)
+                        else:
+                            if (old_data[toast_key] is None or
+                                (float(old_data[toast_key]) != float(
+                                    item['value']))):
+                                data['vacuum_data']['changed'].append(item)
 
             acls = []
             try:
@@ -1659,32 +1709,15 @@ class MViewNode(ViewNode, VacuumSettings):
                 data['schema'] = self._get_schema(data['schema'])
 
             # merge vacuum lists into one
-            vacuum_table = [item for item in data['vacuum_table']
+            vacuum_table = [item for item in data.get('vacuum_table', [])
                             if 'value' in item.keys() and
                             item['value'] is not None]
             vacuum_toast = [
                 {'name': 'toast.' + item['name'], 'value': item['value']}
-                for item in data['vacuum_toast']
+                for item in data.get('vacuum_toast', [])
                 if 'value' in item.keys() and item['value'] is not None]
 
-            # add table_enabled & toast_enabled settings
-            if ('autovacuum_custom' in data and data['autovacuum_custom']):
-                vacuum_table.append(
-                    {
-                        'name': 'autovacuum_enabled',
-                        'value': str(data['autovacuum_enabled'])
-                    }
-                )
-            if ('toast_autovacuum' in data and data['toast_autovacuum']):
-                vacuum_table.append(
-                    {
-                        'name': 'toast.autovacuum_enabled',
-                        'value': str(data['toast_autovacuum_enabled'])
-                    }
-                )
-
-            # add vacuum_toast dict to vacuum_data only if
-            # table & toast's custom autovacuum is enabled
+            # add vacuum_toast dict to vacuum_data
             data['vacuum_data'] = []
             if (
                 'autovacuum_custom' in data and
@@ -1735,35 +1768,16 @@ class MViewNode(ViewNode, VacuumSettings):
             display_comments = False
 
         SQL_data = ''
-        SQL = render_template("/".join(
-            [self.template_path, 'sql/properties.sql']),
-            did=did,
-            vid=vid,
-            datlastsysoid=self.datlastsysoid
-        )
+        status, result = self._fetch_properties(did, scid, vid)
 
-        status, res = self.conn.execute_dict(SQL)
         if not status:
-            return internal_server_error(errormsg=res)
-        if len(res['rows']) == 0:
-            return gone(
-                gettext("Could not find the materialized view on the server.")
-            )
-
-        result = res['rows'][0]
+            return result
 
         if diff_schema:
+            result['definition'] = result['definition'].replace(
+                result['schema'],
+                diff_schema)
             result['schema'] = diff_schema
-
-        # sending result to formtter
-        frmtd_reslt = self.formatter(result)
-
-        # merging formated result with main result again
-        result.update(frmtd_reslt)
-        result['vacuum_table'] = self.parse_vacuum_data(
-            self.conn, result, 'table')
-        result['vacuum_toast'] = self.parse_vacuum_data(
-            self.conn, result, 'toast')
 
         # merge vacuum lists into one
         vacuum_table = [item for item in result['vacuum_table']
@@ -1774,43 +1788,7 @@ class MViewNode(ViewNode, VacuumSettings):
             for item in result['vacuum_toast'] if
             'value' in item.keys() and item['value'] is not None]
 
-        if 'autovacuum_custom' in result and result['autovacuum_custom']:
-            vacuum_table.append(
-                {
-                    'name': 'autovacuum_enabled',
-                    'value': str(result['autovacuum_enabled'])
-                }
-            )
-        if 'toast_autovacuum' in result and result['toast_autovacuum']:
-            vacuum_table.append(
-                {
-                    'name': 'toast.autovacuum_enabled',
-                    'value': str(result['toast_autovacuum_enabled'])
-                }
-            )
-
-        # add vacuum_toast dict to vacuum_data only if
-        # toast's autovacuum is enabled
-        if (
-            'toast_autovacuum_enabled' in result and
-            result['toast_autovacuum_enabled'] is True
-        ):
-            result['vacuum_data'] = vacuum_table + vacuum_toast
-        else:
-            result['vacuum_data'] = vacuum_table
-
-        # Fetch all privileges for view
-        SQL = render_template("/".join(
-            [self.template_path, 'sql/acl.sql']), vid=vid)
-        status, dataclres = self.conn.execute_dict(SQL)
-        if not status:
-            return internal_server_error(errormsg=res)
-
-        for row in dataclres['rows']:
-            priv = parse_priv_from_db(row)
-            res['rows'][0].setdefault(row['deftype'], []).append(priv)
-
-        result.update(res['rows'][0])
+        result['vacuum_data'] = vacuum_table + vacuum_toast
 
         acls = []
         try:
@@ -1890,6 +1868,7 @@ class MViewNode(ViewNode, VacuumSettings):
         and render in the properties tab
         """
         status, res = self._fetch_properties(did, scid, vid)
+
         if not status:
             return res
 
@@ -1916,6 +1895,59 @@ class MViewNode(ViewNode, VacuumSettings):
         if len(res['rows']) == 0:
             return False, gone(
                 gettext("""Could not find the materialized view."""))
+
+        # Set value based on
+        # x: No set, t: true, f: false
+        res['rows'][0]['autovacuum_enabled'] = 'x' \
+            if res['rows'][0]['autovacuum_enabled'] is None else \
+            {True: 't', False: 'f'}[res['rows'][0]['autovacuum_enabled']]
+
+        res['rows'][0]['toast_autovacuum_enabled'] = 'x' \
+            if res['rows'][0]['toast_autovacuum_enabled'] is None else \
+            {True: 't', False: 'f'}[res['rows'][0]['toast_autovacuum_enabled']]
+
+        # Enable custom autovaccum only if one of the options is set
+        # or autovacuum is set
+        res['rows'][0]['autovacuum_custom'] = any([
+            res['rows'][0]['autovacuum_vacuum_threshold'],
+            res['rows'][0]['autovacuum_vacuum_scale_factor'],
+            res['rows'][0]['autovacuum_analyze_threshold'],
+            res['rows'][0]['autovacuum_analyze_scale_factor'],
+            res['rows'][0]['autovacuum_vacuum_cost_delay'],
+            res['rows'][0]['autovacuum_vacuum_cost_limit'],
+            res['rows'][0]['autovacuum_freeze_min_age'],
+            res['rows'][0]['autovacuum_freeze_max_age'],
+            res['rows'][0]['autovacuum_freeze_table_age']]) \
+            or res['rows'][0]['autovacuum_enabled'] in ('t', 'f')
+
+        res['rows'][0]['toast_autovacuum'] = any([
+            res['rows'][0]['toast_autovacuum_vacuum_threshold'],
+            res['rows'][0]['toast_autovacuum_vacuum_scale_factor'],
+            res['rows'][0]['toast_autovacuum_analyze_threshold'],
+            res['rows'][0]['toast_autovacuum_analyze_scale_factor'],
+            res['rows'][0]['toast_autovacuum_vacuum_cost_delay'],
+            res['rows'][0]['toast_autovacuum_vacuum_cost_limit'],
+            res['rows'][0]['toast_autovacuum_freeze_min_age'],
+            res['rows'][0]['toast_autovacuum_freeze_max_age'],
+            res['rows'][0]['toast_autovacuum_freeze_table_age']]) \
+            or res['rows'][0]['toast_autovacuum_enabled'] in ('t', 'f')
+
+        res['rows'][0]['vacuum_settings_str'] = ''
+
+        if res['rows'][0]['reloptions'] is not None:
+            res['rows'][0]['vacuum_settings_str'] += '\n'.\
+                join(res['rows'][0]['reloptions'])
+
+        if res['rows'][0]['toast_reloptions'] is not None:
+            res['rows'][0]['vacuum_settings_str'] += '\n' \
+                if res['rows'][0]['vacuum_settings_str'] != "" else ""
+            res['rows'][0]['vacuum_settings_str'] += '\n'.\
+                join(map(lambda o: 'toast.' + o,
+                         res['rows'][0]['toast_reloptions']))
+
+        res['rows'][0]['vacuum_settings_str'] = res['rows'][0][
+            'vacuum_settings_str'
+        ].replace('=', ' = ')
 
         SQL = render_template("/".join(
             [self.template_path, 'sql/acl.sql']), vid=vid)
@@ -1955,7 +1987,9 @@ class MViewNode(ViewNode, VacuumSettings):
 
         is_concurrent = json.loads(data['concurrent'])
         with_data = json.loads(data['with_data'])
-
+        data = dict()
+        data['is_concurrent'] = is_concurrent
+        data['is_with_data'] = with_data
         try:
 
             # Fetch view name by view id
@@ -1964,6 +1998,10 @@ class MViewNode(ViewNode, VacuumSettings):
             status, res = self.conn.execute_dict(SQL)
             if not status:
                 return internal_server_error(errormsg=res)
+            if len(res['rows']) == 0:
+                return gone(
+                    gettext("""Could not find the materialized view.""")
+                )
 
             # Refresh view
             SQL = render_template(
@@ -1973,21 +2011,91 @@ class MViewNode(ViewNode, VacuumSettings):
                 is_concurrent=is_concurrent,
                 with_data=with_data
             )
-            status, res_data = self.conn.execute_dict(SQL)
-            if not status:
-                return internal_server_error(errormsg=res_data)
 
+            # Fetch the server details like hostname, port, roles etc
+            server = Server.query.filter_by(
+                id=sid).first()
+
+            if server is None:
+                return make_json_response(
+                    success=0,
+                    errormsg=gettext("Could not find the given server")
+                )
+
+            # To fetch MetaData for the server
+            driver = get_driver(PG_DEFAULT_DRIVER)
+            manager = driver.connection_manager(server.id)
+            conn = manager.connection()
+            connected = conn.connected()
+
+            if not connected:
+                return make_json_response(
+                    success=0,
+                    errormsg=gettext("Please connect to the server first.")
+                )
+            # Fetch the database name from connection manager
+            db_info = manager.db_info.get(did, None)
+            if db_info:
+                data['database'] = db_info['datname']
+            else:
+                return make_json_response(
+                    success=0,
+                    errormsg=gettext(
+                        "Could not find the database on the server.")
+                )
+            utility = manager.utility('sql')
+            ret_val = does_utility_exist(utility)
+            if ret_val:
+                return make_json_response(
+                    success=0,
+                    errormsg=ret_val
+                )
+
+            args = [
+                '--host',
+                manager.local_bind_host if manager.use_ssh_tunnel
+                else server.host,
+                '--port',
+                str(manager.local_bind_port) if manager.use_ssh_tunnel
+                else str(server.port),
+                '--username', server.username, '--dbname',
+                data['database'],
+                '--command', SQL
+            ]
+
+            try:
+                p = BatchProcess(
+                    desc=Message(sid, data, SQL),
+                    cmd=utility, args=args
+                )
+                manager.export_password_env(p.id)
+                # Check for connection timeout and if it is greater than 0
+                # then set the environment variable PGCONNECT_TIMEOUT.
+                if manager.connect_timeout > 0:
+                    env = dict()
+                    env['PGCONNECT_TIMEOUT'] = str(manager.connect_timeout)
+                    p.set_env_variables(server, env=env)
+                else:
+                    p.set_env_variables(server)
+
+                p.start()
+                jid = p.id
+            except Exception as e:
+                current_app.logger.exception(e)
+                return make_json_response(
+                    status=410,
+                    success=0,
+                    errormsg=str(e)
+                )
+            # Return response
             return make_json_response(
-                success=1,
-                info=gettext("View refreshed"),
                 data={
-                    'id': vid,
-                    'sid': sid,
-                    'gid': gid,
-                    'did': did
+                    'job_id': jid,
+                    'status': True,
+                    'info': gettext(
+                        'Materialized view refresh job created.')
                 }
             )
-
         except Exception as e:
             current_app.logger.exception(e)
             return internal_server_error(errormsg=str(e))
@@ -2017,6 +2125,39 @@ class MViewNode(ViewNode, VacuumSettings):
                 res[row['name']] = data
 
         return res
+
+    @check_precondition
+    def check_utility_exists(self, gid, sid, did, scid, vid):
+        """
+        This function checks the utility file exist on the given path.
+
+        Args:
+            sid: Server ID
+        Returns:
+            None
+        """
+        server = Server.query.filter_by(
+            id=sid, user_id=current_user.id
+        ).first()
+
+        if server is None:
+            return make_json_response(
+                success=0,
+                errormsg=gettext("Could not find the specified server.")
+            )
+
+        driver = get_driver(PG_DEFAULT_DRIVER)
+        manager = driver.connection_manager(server.id)
+
+        utility = manager.utility('sql')
+        ret_val = does_utility_exist(utility)
+        if ret_val:
+            return make_json_response(
+                success=0,
+                errormsg=ret_val
+            )
+
+        return make_json_response(success=1)
 
 
 SchemaDiffRegistry(view_blueprint.node_type, ViewNode)

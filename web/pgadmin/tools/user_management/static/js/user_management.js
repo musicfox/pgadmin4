@@ -9,12 +9,12 @@
 
 define([
   'sources/gettext', 'sources/url_for', 'jquery', 'underscore', 'pgadmin.alertifyjs',
-  'pgadmin.browser', 'backbone', 'backgrid', 'backform', 'pgadmin.browser.node',
-  'pgadmin.user_management.current_user',
+  'pgadmin.browser', 'backbone', 'backgrid', 'backform', 'pgadmin.browser.node', 'pgadmin.backform',
+  'pgadmin.user_management.current_user', 'sources/utils',
   'backgrid.select.all', 'backgrid.filter',
 ], function(
   gettext, url_for, $, _, alertify, pgBrowser, Backbone, Backgrid, Backform,
-  pgNode, userInfo
+  pgNode, pgBackform, userInfo, commonUtils,
 ) {
 
   // if module is already initialized, refer to that.
@@ -24,14 +24,52 @@ define([
 
   var USERURL = url_for('user_management.users'),
     ROLEURL = url_for('user_management.roles'),
+    SOURCEURL = url_for('user_management.auth_sources'),
+    DEFAULT_AUTH_SOURCE = 'internal',
+    AUTH_ONLY_INTERNAL = (userInfo['auth_sources'].length  == 1 && userInfo['auth_sources'].includes(DEFAULT_AUTH_SOURCE)) ? true : false,
     userFilter = function(collection) {
       return (new Backgrid.Extension.ClientSideFilter({
         collection: collection,
-        placeholder: _('Filter by email'),
+        placeholder: gettext('Filter by email'),
         // How long to wait after typing has stopped before searching can start
         wait: 150,
       }));
     };
+
+  // Integer Cell for Columns Length and Precision
+  var PasswordDepCell = Backgrid.Extension.PasswordDepCell =
+    Backgrid.Extension.PasswordCell.extend({
+      initialize: function() {
+        Backgrid.Extension.PasswordCell.prototype.initialize.apply(this, arguments);
+        Backgrid.Extension.DependentCell.prototype.initialize.apply(this, arguments);
+      },
+      dependentChanged: function () {
+        this.$el.empty();
+        var model = this.model,
+          column = this.column,
+          editable = this.column.get('editable'),
+          is_editable = _.isFunction(editable) ? !!editable.apply(column, [model]) : !!editable;
+
+        if (is_editable){ this.$el.addClass('editable'); }
+        else { this.$el.removeClass('editable'); }
+
+        this.delegateEvents();
+        return this;
+      },
+      render: function() {
+        Backgrid.NumberCell.prototype.render.apply(this, arguments);
+
+        var model = this.model,
+          column = this.column,
+          editable = this.column.get('editable'),
+          is_editable = _.isFunction(editable) ? !!editable.apply(column, [model]) : !!editable;
+
+        if (is_editable){ this.$el.addClass('editable'); }
+        else { this.$el.removeClass('editable'); }
+        return this;
+      },
+      remove: Backgrid.Extension.DependentCell.prototype.remove,
+    });
 
   pgBrowser.UserManagement = {
     init: function() {
@@ -235,20 +273,74 @@ define([
     // Callback to draw User Management Dialog.
     show_users: function() {
       if (!userInfo['is_admin']) return;
-      var Roles = [];
+      var Roles = [],
+        Sources = [];
 
       var UserModel = pgBrowser.Node.Model.extend({
           idAttribute: 'id',
           urlRoot: USERURL,
           defaults: {
             id: undefined,
+            username: undefined,
             email: undefined,
             active: true,
-            role: undefined,
+            role: '2',
             newPassword: undefined,
             confirmPassword: undefined,
+            auth_source: DEFAULT_AUTH_SOURCE,
+            authOnlyInternal: AUTH_ONLY_INTERNAL,
           },
           schema: [{
+            id: 'auth_source',
+            label: gettext('Authentication source'),
+            type: 'text',
+            control: 'Select2',
+            url: url_for('user_management.auth_sources'),
+            cellHeaderClasses: 'width_percent_30',
+            visible: function(m) {
+              if (m.get('authOnlyInternal')) return false;
+              return true;
+            },
+            disabled: false,
+            cell: 'Select2',
+            select2: {
+              allowClear: false,
+              openOnEnter: false,
+              first_empty: false,
+            },
+            options: function() {
+              return Sources;
+            },
+            editable: function(m) {
+              if (m instanceof Backbone.Collection) {
+                return true;
+              }
+              if (m.isNew() && !m.get('authOnlyInternal')) {
+                return true;
+              } else {
+                return false;
+              }
+            },
+          }, {
+            id: 'username',
+            label: gettext('Username'),
+            type: 'text',
+            cell: Backgrid.Extension.StringDepCell,
+            cellHeaderClasses: 'width_percent_30',
+            deps: ['auth_source'],
+            editable: function(m) {
+              if (m.get('authOnlyInternal') || m.get('auth_source') == DEFAULT_AUTH_SOURCE) {
+                if (m.isNew() && m.get('username') != undefined && m.get('username') != '') {
+                  setTimeout( function() {
+                    m.set('username', undefined);
+                  }, 10);
+                }
+                return false;
+              }
+              return true;
+            },
+            disabled: false,
+          }, {
             id: 'email',
             label: gettext('Email'),
             type: 'text',
@@ -256,6 +348,8 @@ define([
             cellHeaderClasses: 'width_percent_30',
             deps: ['id'],
             editable: function(m) {
+              if (!m.get('authOnlyInternal')) return true;
+
               if (m instanceof Backbone.Collection) {
                 return false;
               }
@@ -275,6 +369,7 @@ define([
             select2: {
               allowClear: false,
               openOnEnter: false,
+              first_empty: false,
             },
             options: function(controlOrCell) {
               var options = [];
@@ -312,6 +407,7 @@ define([
             type: 'switch',
             cell: 'switch',
             cellHeaderClasses: 'width_percent_10',
+            sortable: false,
             editable: function(m) {
               if (m instanceof Backbone.Collection) {
                 return true;
@@ -328,23 +424,41 @@ define([
             type: 'password',
             disabled: false,
             control: 'input',
-            cell: 'password',
+            cell: PasswordDepCell,
             cellHeaderClasses: 'width_percent_20',
+            deps: ['auth_source'],
+            sortable: false,
+            editable: function(m) {
+              if (m.get('auth_source') == DEFAULT_AUTH_SOURCE) {
+                return true;
+              } else {
+                return false;
+              }
+            },
           }, {
             id: 'confirmPassword',
             label: gettext('Confirm password'),
             type: 'password',
             disabled: false,
             control: 'input',
-            cell: 'password',
+            cell: PasswordDepCell,
             cellHeaderClasses: 'width_percent_20',
+            deps: ['auth_source'],
+            sortable: false,
+            editable: function(m) {
+              if (m.get('auth_source') == DEFAULT_AUTH_SOURCE) {
+                return true;
+              } else {
+                return false;
+              }
+            },
           }],
           validate: function() {
             var errmsg = null,
               changedAttrs = this.changed || {},
               email_filter = /^[a-zA-Z0-9.!#$%&'*+\/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/;
 
-            if (('email' in changedAttrs || !this.isNew()) && (_.isUndefined(this.get('email')) ||
+            if (this.get('auth_source') == DEFAULT_AUTH_SOURCE && ('email' in changedAttrs || !this.isNew()) && (_.isUndefined(this.get('email')) ||
                 _.isNull(this.get('email')) ||
                 String(this.get('email')).replace(/^\s+|\s+$/g, '') == '')) {
               errmsg = gettext('Email address cannot be empty.');
@@ -357,10 +471,9 @@ define([
               );
               this.errorModel.set('email', errmsg);
               return errmsg;
-            } else if (!!this.get('email') && this.collection.where({
-              'email': this.get('email'),
+            } else if (!!this.get('email') && this.collection.nonFilter.where({
+              'email': this.get('email'), 'auth_source': DEFAULT_AUTH_SOURCE,
             }).length > 1) {
-
               errmsg = gettext('The email address %s already exists.',
                 this.get('email')
               );
@@ -385,111 +498,124 @@ define([
               this.errorModel.unset('role');
             }
 
-            if (this.isNew()) {
-              // Password is compulsory for new user.
-              if ('newPassword' in changedAttrs && (_.isUndefined(this.get('newPassword')) ||
-                  _.isNull(this.get('newPassword')) ||
-                  this.get('newPassword') == '')) {
+            if (this.get('auth_source') == DEFAULT_AUTH_SOURCE) {
+              if (this.isNew()) {
+                // Password is compulsory for new user.
+                if ('newPassword' in changedAttrs && (_.isUndefined(this.get('newPassword')) ||
+                    _.isNull(this.get('newPassword')) ||
+                    this.get('newPassword') == '')) {
 
-                errmsg = gettext('Password cannot be empty for user %s.',
-                  (this.get('email') || '')
-                );
+                  errmsg = gettext('Password cannot be empty for user %s.',
+                    (this.get('email') || '')
+                  );
 
-                this.errorModel.set('newPassword', errmsg);
-                return errmsg;
-              } else if (!_.isUndefined(this.get('newPassword')) &&
-                !_.isNull(this.get('newPassword')) &&
-                this.get('newPassword').length < 6) {
+                  this.errorModel.set('newPassword', errmsg);
+                  return errmsg;
+                } else if (!_.isUndefined(this.get('newPassword')) &&
+                  !_.isNull(this.get('newPassword')) &&
+                  this.get('newPassword').length < 6) {
 
-                errmsg = gettext('Password must be at least 6 characters for user %s.',
-                  (this.get('email') || '')
-                );
+                  errmsg = gettext('Password must be at least 6 characters for user %s.',
+                    (this.get('email') || '')
+                  );
 
-                this.errorModel.set('newPassword', errmsg);
-                return errmsg;
+                  this.errorModel.set('newPassword', errmsg);
+                  return errmsg;
+                } else {
+                  this.errorModel.unset('newPassword');
+                }
+
+                if ('confirmPassword' in changedAttrs && (_.isUndefined(this.get('confirmPassword')) ||
+                    _.isNull(this.get('confirmPassword')) ||
+                    this.get('confirmPassword') == '')) {
+
+                  errmsg = gettext('Confirm Password cannot be empty for user %s.',
+                    (this.get('email') || '')
+                  );
+
+                  this.errorModel.set('confirmPassword', errmsg);
+                  return errmsg;
+                } else {
+                  this.errorModel.unset('confirmPassword');
+                }
+
+                if (!!this.get('newPassword') && !!this.get('confirmPassword') &&
+                  this.get('newPassword') != this.get('confirmPassword')) {
+
+                  errmsg = gettext('Passwords do not match for user %s.',
+                    (this.get('email') || '')
+                  );
+
+                  this.errorModel.set('confirmPassword', errmsg);
+                  return errmsg;
+                } else {
+                  this.errorModel.unset('confirmPassword');
+                }
+
               } else {
-                this.errorModel.unset('newPassword');
-              }
+                if ((_.isUndefined(this.get('newPassword')) || _.isNull(this.get('newPassword')) ||
+                    this.get('newPassword') == '') &&
+                  ((_.isUndefined(this.get('confirmPassword')) || _.isNull(this.get('confirmPassword')) ||
+                    this.get('confirmPassword') == ''))) {
 
-              if ('confirmPassword' in changedAttrs && (_.isUndefined(this.get('confirmPassword')) ||
+                  this.errorModel.unset('newPassword');
+                  if (this.get('newPassword') == '') {
+                    this.set({
+                      'newPassword': undefined,
+                    });
+                  }
+
+                  this.errorModel.unset('confirmPassword');
+                  if (this.get('confirmPassword') == '') {
+                    this.set({
+                      'confirmPassword': undefined,
+                    });
+                  }
+                } else if (!_.isUndefined(this.get('newPassword')) &&
+                  !_.isNull(this.get('newPassword')) &&
+                  !this.get('newPassword') == '' &&
+                  this.get('newPassword').length < 6) {
+
+                  errmsg = gettext('Password must be at least 6 characters for user %s.',
+                    (this.get('email') || '')
+                  );
+
+                  this.errorModel.set('newPassword', errmsg);
+                  return errmsg;
+                } else if (_.isUndefined(this.get('confirmPassword')) ||
                   _.isNull(this.get('confirmPassword')) ||
-                  this.get('confirmPassword') == '')) {
+                  this.get('confirmPassword') == '') {
 
-                errmsg = gettext('Confirm Password cannot be empty for user %s.',
-                  (this.get('email') || '')
-                );
+                  errmsg = gettext('Confirm Password cannot be empty for user %s.',
+                    (this.get('email') || '')
+                  );
 
-                this.errorModel.set('confirmPassword', errmsg);
-                return errmsg;
-              } else {
-                this.errorModel.unset('confirmPassword');
+                  this.errorModel.set('confirmPassword', errmsg);
+                  return errmsg;
+                } else if (!!this.get('newPassword') && !!this.get('confirmPassword') &&
+                  this.get('newPassword') != this.get('confirmPassword')) {
+
+                  errmsg = gettext('Passwords do not match for user %s.',
+                    (this.get('email') || '')
+                  );
+
+                  this.errorModel.set('confirmPassword', errmsg);
+                  return errmsg;
+                } else {
+                  this.errorModel.unset('newPassword');
+                  this.errorModel.unset('confirmPassword');
+                }
               }
-
-              if (!!this.get('newPassword') && !!this.get('confirmPassword') &&
-                this.get('newPassword') != this.get('confirmPassword')) {
-
-                errmsg = gettext('Passwords do not match for user %s.',
-                  (this.get('email') || '')
-                );
-
-                this.errorModel.set('confirmPassword', errmsg);
-                return errmsg;
-              } else {
-                this.errorModel.unset('confirmPassword');
-              }
-
             } else {
-              if ((_.isUndefined(this.get('newPassword')) || _.isNull(this.get('newPassword')) ||
-                  this.get('newPassword') == '') &&
-                ((_.isUndefined(this.get('confirmPassword')) || _.isNull(this.get('confirmPassword')) ||
-                  this.get('confirmPassword') == ''))) {
-
-                this.errorModel.unset('newPassword');
-                if (this.get('newPassword') == '') {
-                  this.set({
-                    'newPassword': undefined,
-                  });
-                }
-
-                this.errorModel.unset('confirmPassword');
-                if (this.get('confirmPassword') == '') {
-                  this.set({
-                    'confirmPassword': undefined,
-                  });
-                }
-              } else if (!_.isUndefined(this.get('newPassword')) &&
-                !_.isNull(this.get('newPassword')) &&
-                !this.get('newPassword') == '' &&
-                this.get('newPassword').length < 6) {
-
-                errmsg = gettext('Password must be at least 6 characters for user %s.',
-                  (this.get('email') || '')
+              if (!!this.get('username') && this.collection.nonFilter.where({
+                'username': this.get('username'), 'auth_source': 'ldap',
+              }).length > 1) {
+                errmsg = gettext('The username %s already exists.',
+                  this.get('username')
                 );
 
-                this.errorModel.set('newPassword', errmsg);
+                this.errorModel.set('username', errmsg);
                 return errmsg;
-              } else if (_.isUndefined(this.get('confirmPassword')) ||
-                _.isNull(this.get('confirmPassword')) ||
-                this.get('confirmPassword') == '') {
-
-                errmsg = gettext('Confirm Password cannot be empty for user %s.',
-                  (this.get('email') || '')
-                );
-
-                this.errorModel.set('confirmPassword', errmsg);
-                return errmsg;
-              } else if (!!this.get('newPassword') && !!this.get('confirmPassword') &&
-                this.get('newPassword') != this.get('confirmPassword')) {
-
-                errmsg = gettext('Passwords do not match for user %s.',
-                  (this.get('email') || '')
-                );
-
-                this.errorModel.set('confirmPassword', errmsg);
-                return errmsg;
-              } else {
-                this.errorModel.unset('newPassword');
-                this.errorModel.unset('confirmPassword');
               }
             }
             return null;
@@ -636,7 +762,7 @@ define([
                   '        <div class="pr-2"> ',
                   '          <i class="fa fa-exclamation-triangle text-danger" aria-hidden="true"></i> ',
                   '        </div> ',
-                  '        <div class="alert-text" role="status></div> ',
+                  '        <div class="alert-text" role="status"></div> ',
                   '        <div class="ml-auto close-error-bar"> ',
                   '          <a class="close-error fa fa-times text-danger"></a> ',
                   '        </div> ',
@@ -670,6 +796,7 @@ define([
                     var self = this;
                     self.changedUser = null;
                     self.invalidUsers = {};
+                    self.nonFilter = this;
 
                     self.on('add', self.onModelAdd);
                     self.on('remove', self.onModelRemove);
@@ -716,7 +843,10 @@ define([
                   saveUser: function(m) {
                     var d = m.toJSON(true);
 
-                    if (m.isNew() && (!m.get('email') || !m.get('role') ||
+                    if(m.isNew() && m.get('auth_source') == 'ldap' &&
+                     (!m.get('username') || !m.get('auth_source') || !m.get('role')) ) {
+                      return false;
+                    } else if (m.isNew() && m.get('auth_source') == DEFAULT_AUTH_SOURCE &&  (!m.get('email') || !m.get('role') ||
                         !m.get('newPassword') || !m.get('confirmPassword') ||
                         m.get('newPassword') != m.get('confirmPassword'))) {
                       // New user model is valid but partially filled so return without saving.
@@ -734,14 +864,21 @@ define([
                         wait: true,
                         success: function() {
                           // User created/updated on server now start new session for this user.
+                          let temp_auth_sources = m.get('auth_source');
                           m.set({
                             'newPassword': undefined,
                             'confirmPassword': undefined,
+                            'auth_source': undefined,
+                          });
+
+                          // It's a heck to re-render the Auth Source control.
+                          m.set({
+                            'auth_source': temp_auth_sources,
                           });
 
                           m.startNewSession();
                           alertify.success(gettext('User \'%s\' saved.',
-                            m.get('email')
+                            m.get('username')
                           ));
                         },
                         error: function(res, jqxhr) {
@@ -758,14 +895,14 @@ define([
                 }),
                 userCollection = this.userCollection = new UserCollection(),
                 header =
-                  `<div class="navtab-inline-controls">
+                  `<div class="navtab-inline-controls pgadmin-controls">
                     <div class="input-group">
                       <div class="input-group-prepend">
                         <span class="input-group-text fa fa-search" id="labelSearch"></span>
                         </div>
-                          <input type="search" class="form-control" id="txtGridSearch" placeholder="Search" aria-label="Search" aria-describedby="labelSearch" />
+                          <input type="search" class="form-control" id="txtGridSearch" placeholder="` + gettext('Search') + '" aria-label="' + gettext('Search') + `" aria-describedby="labelSearch" />
                         </div>
-                        <button id="btn_refresh" type="button" class="btn btn-secondary btn-navtab-inline add" title="Add">
+                        <button id="btn_add" type="button" class="btn btn-secondary btn-navtab-inline add" title="` + gettext('Add') + `">
                           <span class="fa fa-plus "></span>
                         </button>
                       </div>
@@ -797,6 +934,23 @@ define([
                   }, 100);
                 });
 
+              $.ajax({
+                url: SOURCEURL,
+                method: 'GET',
+                async: false,
+              })
+                .done(function(res) {
+                  Sources = res;
+                })
+                .fail(function() {
+                  setTimeout(function() {
+                    alertify.alert(
+                      gettext('Error'),
+                      gettext('Cannot load user Sources.')
+                    );
+                  }, 100);
+                });
+
               var view = this.view = new Backgrid.Grid({
                 row: UserRow,
                 columns: gridSchema.columns,
@@ -812,7 +966,7 @@ define([
               this.elements.content.appendChild(this.$content[0]);
 
               // Render Search Filter
-              userFilter(userCollection).setCustomSearchBox($('#txtGridSearch'));
+              userCollection.nonFilter = userFilter(userCollection).setCustomSearchBox($('#txtGridSearch')).shadowCollection;
               userCollection.fetch();
 
               this.$content.find('a.close-error').on('click',() => {
@@ -822,47 +976,33 @@ define([
 
               this.$content.find('button.add').first().on('click',(e) => {
                 e.preventDefault();
-                var canAddRow = true;
-
-                if (canAddRow) {
-                  // There should be only one empty row.
-
-                  var isEmpty = false,
-                    unsavedModel = null;
-
-                  userCollection.each(function(model) {
-                    if (!isEmpty) {
-                      isEmpty = model.isNew();
-                      unsavedModel = model;
-                    }
-                  });
-                  var idx;
-
-                  if (isEmpty) {
-                    idx = userCollection.indexOf(unsavedModel);
-                    var row = view.body.rows[idx].$el;
-
+                // There should be only one empty row.
+                for(const [idx, model] of userCollection.models.entries()) {
+                  if(model.isNew()) {
+                    let row = view.body.rows[idx].$el;
                     row.addClass('new');
-                    $(row).pgMakeVisible('backform-tab');
+                    $(row).pgMakeVisible('backgrid');
+                    $(row).find('.email').trigger('click');
                     return false;
                   }
-
-                  $(view.body.$el.find($('tr.new'))).removeClass('new');
-                  var m = new(UserModel)(null, {
-                    handler: userCollection,
-                    top: userCollection,
-                    collection: userCollection,
-                  });
-                  userCollection.add(m);
-
-                  idx = userCollection.indexOf(m);
-                  var newRow = view.body.rows[idx].$el;
-
-                  newRow.addClass('new');
-                  $(newRow).pgMakeVisible('backform-tab');
-                  return false;
                 }
+
+                $(view.body.$el.find($('tr.new'))).removeClass('new');
+                var m = new(UserModel)(null, {
+                  handler: userCollection,
+                  top: userCollection,
+                  collection: userCollection,
+                });
+                userCollection.add(m);
+
+                var newRow = view.body.rows[userCollection.indexOf(m)].$el;
+                newRow.addClass('new');
+                $(newRow).pgMakeVisible('backgrid');
+                $(newRow).find('.email').trigger('click');
+                return false;
               });
+
+              commonUtils.findAndSetFocus(this.$content);
             },
             callback: function(e) {
               if (e.button.element.name == 'dialog_help') {

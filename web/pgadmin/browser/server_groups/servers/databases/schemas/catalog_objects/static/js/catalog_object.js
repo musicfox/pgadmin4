@@ -45,20 +45,24 @@ define('pgadmin.node.catalog_object', [
           name: undefined,
           namespaceowner: undefined,
           nspacl: undefined,
+          is_sys_obj: undefined,
           description: undefined,
         },
         schema: [{
           id: 'name', label: gettext('Name'), cell: 'string',
-          type: 'text', disabled: true,
+          type: 'text', readonly: true,
         },{
           id: 'oid', label: gettext('OID'), cell: 'string',
-          type: 'text', disabled: true,
+          type: 'text',
         },{
           id: 'owner', label: gettext('Owner'), cell: 'string',
-          type: 'text', disabled: true,
+          type: 'text', readonly: true,
+        },{
+          id: 'is_sys_obj', label: gettext('System catalog object?'),
+          cell:'boolean', type: 'switch', mode: ['properties'],
         },{
           id: 'description', label: gettext('Comment'), cell: 'string',
-          type: 'multiline' ,  disabled: true,
+          type: 'multiline' ,  readonly: true,
         },
         ],
       }),

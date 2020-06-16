@@ -100,13 +100,13 @@ define([
       '        <% } %>' +
       '        <div class="col-sm-<% if (this.options.show_left_panel) { %>9<% }' +
       '          else { %>12<% } %> wizard-right-panel">' +
-      '          <% if ( typeof show_description !=  "undefined"){ %>' +
+      '          <% if ( typeof show_description !=  "undefined" && show_description != ""){ %>' +
       '            <div class="wizard-description">' +
       '              <%= show_description %>' +
       '            </div>' +
       '          <% } %>' +
       '          <div class="wizard-progress-bar"><% if (show_progress_bar) { %>' +
-      '            <p class="alert alert-info col-sm-12"><%= show_progress_bar %></p><% } %>' +
+      '            <p role="status" class="alert alert-info col-sm-12"><%= show_progress_bar %></p><% } %>' +
       '          </div>' +
       '          <div class="wizard-right-panel_content">' +
       '          </div>' +
@@ -119,7 +119,7 @@ define([
       '              <div class="pr-2"> ' +
       '                <i class="fa fa-exclamation-triangle text-danger" aria-hidden="true" role="img"></i> ' +
       '              </div> ' +
-      '              <div class="alert-text"></div> ' +
+      '              <div role="alert" class="alert-text"></div> ' +
       '              <div class="ml-auto close-error-bar"> ' +
       '                <a aria-label="' + gettext('Close error bar') + '" class="close-error fa fa-times text-danger"></a> ' +
       '              </div> ' +
@@ -155,6 +155,7 @@ define([
       'click button.wizard-finish': 'finishWizard',
       'click button.wizard-help': 'onDialogHelp',
       'click a.close-error': 'closeErrorMsg',
+      'keydown': 'keydownHandler',
     },
     initialize: function(options) {
       this.options = _.extend({}, this.options, options.options);
@@ -183,11 +184,10 @@ define([
 
       /* OnLoad Callback */
       this.onLoad();
-
       setTimeout(function() {
         var container = $(self.el);
         commonUtils.findAndSetFocus(container);
-      }, 100);
+      }, 500);
 
       return this;
     },
@@ -238,6 +238,9 @@ define([
       delete this.$el; // Delete the jQuery wrapped object variable
       delete this.el; // Delete the variable reference to this node
       return true;
+    },
+    keydownHandler: function(event) {
+      commonUtils.handleKeyNavigation(event);
     },
     enableDisableNext: function(disable) {
       if (typeof(disable) != 'undefined') {

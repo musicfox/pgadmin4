@@ -66,8 +66,10 @@ class TestsGeneratorRegistry(ABCMeta):
         all_modules = []
 
         all_modules += find_modules(pkg_root, False, True)
-        # Append reverse engineered test case module
-        all_modules.append('regression.re_sql.tests.test_resql')
+
+        if 'resql' not in exclude_pkgs:
+            # Append reverse engineered test case module
+            all_modules.append('regression.re_sql.tests.test_resql')
 
         # If specific modules are to be tested, exclude others
         # for modules are handled differently for resql
@@ -112,15 +114,13 @@ class BaseTestGenerator(unittest.TestCase):
         super(BaseTestGenerator, self).setUp()
         self.server_id = self.server_information["server_id"]
         server_con = server_utils.connect_server(self, self.server_id)
-        if hasattr(self, 'skip_on_database'):
-            if 'data' in server_con and 'type' in server_con['data']:
-                if server_con['data']['type'] in self.skip_on_database:
-                    self.skipTest('cannot run in: %s' %
-                                  server_con['data']['type'])
+        if hasattr(self, 'skip_on_database') and \
+            'data' in server_con and 'type' in server_con['data'] and \
+                server_con['data']['type'] in self.skip_on_database:
+            self.skipTest('cannot run in: %s' % server_con['data']['type'])
 
-    @classmethod
-    def setTestServer(cls, server):
-        cls.server = server
+    def setTestServer(self, server):
+        self.server = server
 
     @abstractmethod
     def runTest(self):
@@ -135,17 +135,14 @@ class BaseTestGenerator(unittest.TestCase):
     def setTestClient(cls, test_client):
         cls.tester = test_client
 
-    @classmethod
-    def setDriver(cls, driver):
-        cls.driver = driver
+    def setDriver(self, driver):
+        self.driver = driver
 
-    @classmethod
-    def setServerInformation(cls, server_information):
-        cls.server_information = server_information
+    def setServerInformation(self, server_information):
+        self.server_information = server_information
 
-    @classmethod
-    def setTestDatabaseName(cls, database_name):
-        cls.test_db = database_name
+    def setTestDatabaseName(self, database_name):
+        self.test_db = database_name
 
     @classmethod
     def setReSQLModuleList(cls, module_list):

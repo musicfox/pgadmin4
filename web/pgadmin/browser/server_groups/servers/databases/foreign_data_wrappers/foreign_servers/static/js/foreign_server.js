@@ -36,7 +36,7 @@ define('pgadmin.node.foreign_server', [
       if (_.isUndefined(this.get('fsrvoption')) ||
             _.isNull(this.get('fsrvoption')) ||
             String(this.get('fsrvoption')).replace(/^\s+|\s+$/g, '') == '') {
-        var msg = 'Please enter an option name';
+        var msg = gettext('Please enter an option name.');
         this.errorModel.set('fsrvoption', msg);
         return msg;
       } else {
@@ -109,6 +109,7 @@ define('pgadmin.node.foreign_server', [
           fsrvvalue: undefined,
           fsrvoptions: [],
           fsrvowner: undefined,
+          is_sys_obj: undefined,
           description: undefined,
           fsrvacl: [],
         },
@@ -135,7 +136,7 @@ define('pgadmin.node.foreign_server', [
           },
         },{
           id: 'fsrvid', label: gettext('OID'), cell: 'string',
-          type: 'text', disabled: true, mode: ['properties'],
+          type: 'text', mode: ['properties'],
         },{
           id: 'fsrvowner', label: gettext('Owner'), type: 'text',
           control: Backform.NodeListByNameControl, node: 'role',
@@ -148,6 +149,9 @@ define('pgadmin.node.foreign_server', [
         },{
           id: 'fsrvversion', label: gettext('Version'), cell: 'string',
           group: gettext('Definition'), type: 'text',
+        },{
+          id: 'is_sys_obj', label: gettext('System foreign server?'),
+          cell:'boolean', type: 'switch', mode: ['properties'],
         },{
           id: 'description', label: gettext('Comment'), cell: 'string',
           type: 'multiline',
@@ -162,7 +166,7 @@ define('pgadmin.node.foreign_server', [
           mode: ['edit', 'create'], canAdd: true, canDelete: true, uniqueCol : ['grantee'],
         },{
           id: 'acl', label: gettext('Privileges'), type: 'text',
-          group: gettext('Security'), mode: ['properties'], disabled: true,
+          group: gettext('Security'), mode: ['properties'],
         },
         ],
 

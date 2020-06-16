@@ -22,10 +22,6 @@ from pgadmin.utils.ajax import make_json_response, \
 from pgadmin.utils.ajax import precondition_required
 from pgadmin.utils.driver import get_driver
 from config import PG_DEFAULT_DRIVER
-from pgadmin.utils import IS_PY2
-# If we are in Python3
-if not IS_PY2:
-    unicode = str
 
 
 class ResourceGroupModule(CollectionNodeModule):
@@ -219,7 +215,11 @@ class ResourceGroupView(NodeView):
             self.manager = self.driver.connection_manager(kwargs['sid'])
             self.conn = self.manager.connection()
 
-            # If DB not connected then return error to browser
+            self.datlastsysoid = \
+                self.manager.db_info[self.manager.did]['datlastsysoid'] \
+                if self.manager.db_info is not None and \
+                self.manager.did in self.manager.db_info else 0
+
             if not self.conn.connected():
                 return precondition_required(
                     gettext(
@@ -336,6 +336,9 @@ class ResourceGroupView(NodeView):
         if len(res['rows']) == 0:
             return gone(gettext("""Could not find the resource group."""))
 
+        res['rows'][0]['is_sys_obj'] = (
+            res['rows'][0]['oid'] <= self.datlastsysoid)
+
         return ajax_response(
             response=res['rows'][0],
             status=200
@@ -363,8 +366,8 @@ class ResourceGroupView(NodeView):
                     status=410,
                     success=0,
                     errormsg=gettext(
-                        "Could not find the required parameter (%s)." % arg
-                    )
+                        "Could not find the required parameter ({})."
+                    ).format(arg)
                 )
         try:
             # Below logic will create new resource group
@@ -556,7 +559,7 @@ class ResourceGroupView(NodeView):
 
         sql, name = self.get_sql(data, rg_id)
         # Most probably this is due to error
-        if not isinstance(sql, (str, unicode)):
+        if not isinstance(sql, str):
             return sql
 
         sql = sql.strip('\n').strip(' ')
@@ -588,7 +591,7 @@ class ResourceGroupView(NodeView):
 
             if len(res['rows']) == 0:
                 return gone(
-                    _("The specified resource group could not be found.")
+                    gettext("The specified resource group could not be found.")
                 )
             old_data = res['rows'][0]
             for arg in required_args:
@@ -655,7 +658,7 @@ class ResourceGroupView(NodeView):
             return internal_server_error(errormsg=res)
         if len(res['rows']) == 0:
             return gone(
-                _("The specified resource group could not be found.")
+                gettext("The specified resource group could not be found.")
             )
 
         # Making copy of output for future use

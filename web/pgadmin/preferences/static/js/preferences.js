@@ -214,7 +214,7 @@ define('pgadmin.preferences', [
                 onText: gettext('True'),
                 offText: gettext('False'),
                 onColor: 'success',
-                offColor: 'primary',
+                offColor: 'ternary',
                 size: 'mini',
               };
               return 'switch';
@@ -223,7 +223,7 @@ define('pgadmin.preferences', [
                 onText: gettext('Show'),
                 offText: gettext('Hide'),
                 onColor: 'success',
-                offColor: 'primary',
+                offColor: 'ternary',
                 size: 'mini',
                 width: '56',
               };
@@ -400,6 +400,7 @@ define('pgadmin.preferences', [
             jTree.aciTree({
               selectable: true,
               expand: true,
+              fullRow: true,
               ajax: {
                 url: url_for('preferences.index'),
               },

@@ -190,7 +190,6 @@
 }
 
 .upload_file .file_upload_main {
-  position: relative;
   height: 127px;;
   width: 120px;
   display: inline-block;
@@ -201,7 +200,6 @@
   -webkit-border-radius: 5px;
   -moz-border-radius: 5px;
   background: $color-bg;
-  margin: 2px;
   opacity: 1;
 }
 
@@ -332,4 +330,33 @@
   left: -6px;
   font-size: 8px;
   margin-right: -8px;
+}
+
+table.tablesorter {
+  th:focus,
+  tr:focus {
+    outline: $input-focus-border-color auto 5px !important;
+  }
+}
+
+#contents {
+  li:focus {
+    outline: $input-focus-border-color auto 5px !important;
+  }
+}
+
+/* Specific to IE11 where we want to highlight the focus on grid/row  */
+@media all and (-ms-high-contrast: none), (-ms-high-contrast: active) {
+  table.tablesorter {
+    th:focus,
+    tr:focus {
+      border: 2px solid $input-focus-border-color !important;;
+    }
+  }
+
+  #contents {
+    li:focus {
+      border: 2px solid $input-focus-border-color !important;
+    }
+  }
 }

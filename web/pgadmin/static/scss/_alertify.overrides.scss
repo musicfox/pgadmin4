@@ -279,3 +279,20 @@
     transform: none;
   }
 }
+
+
+.ajs-commands, .ajs-close {
+  button {
+    @extend .btn-secondary;
+    outline: none !important;
+  }
+}
+
+.wizard-header {
+  .ml-auto {
+    button {
+      @extend .btn-secondary;
+      outline: none !important;
+     }
+  }
+}

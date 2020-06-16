@@ -22,16 +22,11 @@ from pgadmin.browser.server_groups.servers.databases.schemas.utils \
 from pgadmin.browser.server_groups.servers.utils import parse_priv_from_db, \
     parse_priv_to_db
 from pgadmin.browser.utils import PGChildNodeView
-from pgadmin.utils import IS_PY2
 from pgadmin.utils.ajax import make_json_response, internal_server_error, \
     make_response as ajax_response, gone
 from pgadmin.utils.driver import get_driver
 from pgadmin.tools.schema_diff.node_registry import SchemaDiffRegistry
 from pgadmin.tools.schema_diff.compare import SchemaDiffObjectCompare
-
-# If we are in Python3
-if not IS_PY2:
-    unicode = str
 
 
 class TypeModule(SchemaChildModule):
@@ -218,6 +213,9 @@ class TypeView(PGChildNodeView, DataTypeReader, SchemaDiffObjectCompare):
         'get_external_functions': [{'get': 'get_external_functions_list'},
                                    {'get': 'get_external_functions_list'}]
     })
+
+    keys_to_ignore = ['oid', 'typnamespace', 'typrelid', 'typarray', 'alias',
+                      'schema', 'oid-2', 'type_acl']
 
     def check_precondition(f):
         """
@@ -943,38 +941,35 @@ class TypeView(PGChildNodeView, DataTypeReader, SchemaDiffObjectCompare):
                     status=410,
                     success=0,
                     errormsg=gettext(
-                        "Could not find the required parameter (%s)." %
-                        required_args[arg]
-                    )
+                        "Could not find the required parameter ({})."
+                    ).format(arg)
                 )
             # Additional checks goes here
             # If type is range then check if subtype is defined or not
-            if data and data[arg] == 'r':
-                if 'typname' not in data or data['typname'] is None:
-                    return make_json_response(
-                        status=410,
-                        success=0,
-                        errormsg=gettext(
-                            'Subtype must be defined for range types.'
-                        )
+            if data and data[arg] == 'r' and \
+                    ('typname' not in data or data['typname'] is None):
+                return make_json_response(
+                    status=410,
+                    success=0,
+                    errormsg=gettext(
+                        'Subtype must be defined for range types.'
                     )
+                )
             # If type is external then check if input/output
             # conversion function is defined
-            if data and data[arg] == 'b':
-                if (
+            if data and data[arg] == 'b' and (
                     'typinput' not in data or
                     'typoutput' not in data or
                     data['typinput'] is None or
-                    data['typoutput'] is None
-                ):
-                    return make_json_response(
-                        status=410,
-                        success=0,
-                        errormsg=gettext(
-                            'External types require both input and output '
-                            'conversion functions.'
-                        )
+                    data['typoutput'] is None):
+                return make_json_response(
+                    status=410,
+                    success=0,
+                    errormsg=gettext(
+                        'External types require both input and output '
+                        'conversion functions.'
                     )
+                )
 
         # To format privileges coming from client
         if 'typacl' in data and data['typacl'] is not None:
@@ -1044,7 +1039,7 @@ class TypeView(PGChildNodeView, DataTypeReader, SchemaDiffObjectCompare):
         try:
             SQL, name = self.get_sql(gid, sid, data, scid, tid)
             # Most probably this is due to error
-            if not isinstance(SQL, (str, unicode)):
+            if not isinstance(SQL, str):
                 return SQL
             SQL = SQL.strip('\n').strip(' ')
             status, res = self.conn.execute_scalar(SQL)
@@ -1071,7 +1066,7 @@ class TypeView(PGChildNodeView, DataTypeReader, SchemaDiffObjectCompare):
             return internal_server_error(errormsg=str(e))
 
     @check_precondition
-    def delete(self, gid, sid, did, scid, tid=None):
+    def delete(self, gid, sid, did, scid, tid=None, only_sql=False):
         """
         This function will updates existing the type object
 
@@ -1081,6 +1076,7 @@ class TypeView(PGChildNodeView, DataTypeReader, SchemaDiffObjectCompare):
            did: Database ID
            scid: Schema ID
            tid: Type ID
+           only_sql: Return only sql if True
         """
         if tid is None:
             data = request.form if request.form else json.loads(
@@ -1090,7 +1086,7 @@ class TypeView(PGChildNodeView, DataTypeReader, SchemaDiffObjectCompare):
             data = {'ids': [tid]}
 
         # Below will decide if it's simple drop or drop with cascade call
-        if self.cmd == 'delete':
+        if self.cmd == 'delete' or only_sql:
             # This is a cascade operation
             cascade = True
         else:
@@ -1128,6 +1124,11 @@ class TypeView(PGChildNodeView, DataTypeReader, SchemaDiffObjectCompare):
                                       data=data,
                                       cascade=cascade,
                                       conn=self.conn)
+
+                # Used for schema diff tool
+                if only_sql:
+                    return SQL
+
                 status, res = self.conn.execute_scalar(SQL)
                 if not status:
                     return internal_server_error(errormsg=res)
@@ -1169,7 +1170,7 @@ class TypeView(PGChildNodeView, DataTypeReader, SchemaDiffObjectCompare):
         try:
             sql, name = self.get_sql(gid, sid, data, scid, tid)
             # Most probably this is due to error
-            if not isinstance(sql, (str, unicode)):
+            if not isinstance(sql, str):
                 return sql
             sql = sql.strip('\n').strip(' ')
 
@@ -1279,10 +1280,19 @@ class TypeView(PGChildNodeView, DataTypeReader, SchemaDiffObjectCompare):
             old_data.update(self.additional_properties(old_data, tid))
             old_data = self._convert_for_sql(old_data)
 
-            SQL = render_template(
-                "/".join([self.template_path, 'update.sql']),
-                data=data, o_data=old_data, conn=self.conn
-            )
+            # If typname or collname is changed while comparing
+            # two schemas then we need to drop type and recreate it
+            if 'typtype' in data or 'typname' in data or 'collname' in data\
+                    or 'typinput' in data or 'typoutput' in data:
+                SQL = render_template(
+                    "/".join([self.template_path, 'type_schema_diff.sql']),
+                    data=data, o_data=old_data, conn=self.conn
+                )
+            else:
+                SQL = render_template(
+                    "/".join([self.template_path, 'update.sql']),
+                    data=data, o_data=old_data, conn=self.conn
+                )
         else:
             required_args = [
                 'name',
@@ -1295,20 +1305,18 @@ class TypeView(PGChildNodeView, DataTypeReader, SchemaDiffObjectCompare):
 
             # Additional checks go here
             # If type is range then check if subtype is defined or not
-            if data and data[arg] == 'r':
-                if 'typname' not in data or data['typname'] is None:
-                    return "-- definition incomplete"
+            if data and data[arg] == 'r' and \
+                    ('typname' not in data or data['typname'] is None):
+                return "-- definition incomplete"
 
             # If type is external then check if input/output
             # conversion function is defined
-            if data and data[arg] == 'b':
-                if (
+            if data and data[arg] == 'b' and (
                     'typinput' not in data or
                     'typoutput' not in data or
                     data['typinput'] is None or
-                    data['typoutput'] is None
-                ):
-                    return "-- definition incomplete"
+                    data['typoutput'] is None):
+                return "-- definition incomplete"
 
             # Privileges
             if 'typacl' in data and data['typacl'] is not None:
@@ -1331,7 +1339,8 @@ class TypeView(PGChildNodeView, DataTypeReader, SchemaDiffObjectCompare):
         return SQL, data['name'] if 'name' in data else old_data['name']
 
     @check_precondition
-    def sql(self, gid, sid, did, scid, tid):
+    def sql(self, gid, sid, did, scid, tid, diff_schema=None,
+            json_resp=True):
         """
         This function will generates reverse engineered sql for type object
 
@@ -1341,6 +1350,8 @@ class TypeView(PGChildNodeView, DataTypeReader, SchemaDiffObjectCompare):
            did: Database ID
            scid: Schema ID
            tid: Type ID
+           diff_schema: Target Schema for schema diff
+           json_resp: True then return json response
         """
         SQL = render_template(
             "/".join([self.template_path,
@@ -1358,6 +1369,9 @@ class TypeView(PGChildNodeView, DataTypeReader, SchemaDiffObjectCompare):
             )
         # Making copy of output for future use
         data = dict(res['rows'][0])
+
+        if diff_schema:
+            data['schema'] = diff_schema
 
         SQL = render_template("/".join([self.template_path, 'acl.sql']),
                               scid=scid, tid=tid)
@@ -1391,7 +1405,7 @@ class TypeView(PGChildNodeView, DataTypeReader, SchemaDiffObjectCompare):
 
         SQL, name = self.get_sql(gid, sid, data, scid, tid=None, is_sql=True)
         # Most probably this is due to error
-        if not isinstance(SQL, (str, unicode)):
+        if not isinstance(SQL, str):
             return SQL
         # We are appending headers here for sql panel
         sql_header = u"-- Type: {0}\n\n-- ".format(data['name'])
@@ -1400,6 +1414,9 @@ class TypeView(PGChildNodeView, DataTypeReader, SchemaDiffObjectCompare):
                                                 'delete.sql']),
                                       data=data, conn=self.conn)
         SQL = sql_header + '\n\n' + SQL
+
+        if not json_resp:
+            return SQL.strip('\n')
 
         return ajax_response(response=SQL)
 
@@ -1473,5 +1490,38 @@ class TypeView(PGChildNodeView, DataTypeReader, SchemaDiffObjectCompare):
 
         return res
 
+    def get_sql_from_diff(self, gid, sid, did, scid, oid, data=None,
+                          diff_schema=None, drop_sql=False):
+        """
+        This function is used to get the DDL/DML statements.
+        :param gid: Group ID
+        :param sid: Serve ID
+        :param did: Database ID
+        :param scid: Schema ID
+        :param oid: Collation ID
+        :param data: Difference data
+        :param diff_schema: Target Schema
+        :param drop_sql: True if need to drop the types
+        :return:
+        """
+        sql = ''
+        if data:
+            if diff_schema:
+                data['schema'] = diff_schema
+            sql, name = self.get_sql(gid=gid, sid=sid, scid=scid,
+                                     data=data, tid=oid)
+        else:
+            if drop_sql:
+                sql = self.delete(gid=gid, sid=sid, did=did,
+                                  scid=scid, tid=oid, only_sql=True)
+            elif diff_schema:
+                sql = self.sql(gid=gid, sid=sid, did=did, scid=scid, tid=oid,
+                               diff_schema=diff_schema, json_resp=False)
+            else:
+                sql = self.sql(gid=gid, sid=sid, did=did, scid=scid, tid=oid,
+                               json_resp=False)
+        return sql
 
+
+SchemaDiffRegistry(blueprint.node_type, TypeView)
 TypeView.register_node_view(blueprint)

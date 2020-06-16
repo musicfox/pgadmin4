@@ -8,7 +8,6 @@
 ##########################################################################
 
 import simplejson as json
-import re
 import pgadmin.browser.server_groups as sg
 from flask import render_template, request, make_response, jsonify, \
     current_app, url_for
@@ -20,6 +19,7 @@ from pgadmin.utils.ajax import make_json_response, bad_request, forbidden, \
     make_response as ajax_response, internal_server_error, unauthorized, gone
 from pgadmin.utils.crypto import encrypt, decrypt, pqencryptpassword
 from pgadmin.utils.menu import MenuItem
+from pgadmin.utils.ip import is_valid_ipaddress
 from pgadmin.tools.sqleditor.utils.query_history import QueryHistory
 
 import config
@@ -152,8 +152,7 @@ class ServerModule(sg.ServerGroupPluginModule):
                 user=manager.user_info if connected else None,
                 in_recovery=in_recovery,
                 wal_pause=wal_paused,
-                is_password_saved=True if server.password is not None
-                else False,
+                is_password_saved=bool(server.save_password),
                 is_tunnel_password_saved=True
                 if server.tunnel_password is not None else False,
                 was_connected=was_connected,
@@ -272,31 +271,6 @@ class ServerNode(PGChildNodeView):
         'clear_saved_password': [{'put': 'clear_saved_password'}],
         'clear_sshtunnel_password': [{'put': 'clear_sshtunnel_password'}]
     })
-    EXP_IP4 = "^\s*((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\." \
-              "(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\." \
-              "(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\." \
-              "(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?))\s*$"
-    EXP_IP6 = '^\s*((([0-9A-Fa-f]{1,4}:){7}([0-9A-Fa-f]{1,4}|:))|' \
-              '(([0-9A-Fa-f]{1,4}:){6}(:[0-9A-Fa-f]{1,4}|((25[0-5]|' \
-              '2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d))' \
-              '{3})|:))|(([0-9A-Fa-f]{1,4}:){5}(((:[0-9A-Fa-f]{1,4}){1,2})|' \
-              ':((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d' \
-              '|[1-9]?\d)){3})|:))|(([0-9A-Fa-f]{1,4}:){4}(((:[0-9A-Fa-f]' \
-              '{1,4}){1,3})|((:[0-9A-Fa-f]{1,4})?:((25[0-5]|2[0-4]\d|1\d\d|' \
-              '[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:))|' \
-              '(([0-9A-Fa-f]{1,4}:){3}(((:[0-9A-Fa-f]{1,4}){1,4})|((:[0-9A-' \
-              'Fa-f]{1,4}){0,2}:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25' \
-              '[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:))|(([0-9A-Fa-f]{1,4}:)' \
-              '{2}(((:[0-9A-Fa-f]{1,4}){1,5})|((:[0-9A-Fa-f]{1,4}){0,3}:(' \
-              '(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|' \
-              '[1-9]?\d)){3}))|:))|(([0-9A-Fa-f]{1,4}:){1}(((:[0-9A-Fa-f]' \
-              '{1,4}){1,6})|((:[0-9A-Fa-f]{1,4}){0,4}:((25[0-5]|2[0-4]\d|'\
-              '1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:))' \
-              '|(:(((:[0-9A-Fa-f]{1,4}){1,7})|((:[0-9A-Fa-f]{1,4}){0,5}:((' \
-              '25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|' \
-              '[1-9]?\d)){3}))|:)))(%.+)?\s*$'
-    pat4 = re.compile(EXP_IP4)
-    pat6 = re.compile(EXP_IP6)
     SSL_MODES = ['prefer', 'require', 'verify-ca', 'verify-full']
 
     def check_ssl_fields(self, data):
@@ -384,8 +358,7 @@ class ServerNode(PGChildNodeView):
                     user=manager.user_info if connected else None,
                     in_recovery=in_recovery,
                     wal_pause=wal_paused,
-                    is_password_saved=True if server.password is not None
-                    else False,
+                    is_password_saved=bool(server.save_password),
                     is_tunnel_password_saved=True
                     if server.tunnel_password is not None else False,
                     errmsg=errmsg
@@ -446,8 +419,7 @@ class ServerNode(PGChildNodeView):
                 user=manager.user_info if connected else None,
                 in_recovery=in_recovery,
                 wal_pause=wal_paused,
-                is_password_saved=True if server.password is not None
-                else False,
+                is_password_saved=bool(server.save_password),
                 is_tunnel_password_saved=True
                 if server.tunnel_password is not None else False,
                 errmsg=errmsg
@@ -550,14 +522,13 @@ class ServerNode(PGChildNodeView):
         if 'db_res' in data:
             data['db_res'] = ','.join(data['db_res'])
 
-        if 'hostaddr' in data and data['hostaddr'] and data['hostaddr'] != '':
-            if not self.pat4.match(data['hostaddr']):
-                if not self.pat6.match(data['hostaddr']):
-                    return make_json_response(
-                        success=0,
-                        status=400,
-                        errormsg=gettext('Host address not valid')
-                    )
+        if 'hostaddr' in data and data['hostaddr'] and data['hostaddr'] != '' \
+                and not is_valid_ipaddress(data['hostaddr']):
+            return make_json_response(
+                success=0,
+                status=400,
+                errormsg=gettext('Host address not valid')
+            )
 
         manager = get_driver(PG_DEFAULT_DRIVER).connection_manager(sid)
         conn = manager.connection()
@@ -570,7 +541,7 @@ class ServerNode(PGChildNodeView):
             ):
                 if arg in data:
                     return forbidden(
-                        errormsg=gettext(
+                        errmsg=gettext(
                             "'{0}' is not allowed to modify, "
                             "when server is connected."
                         ).format(disp_lbl[arg])
@@ -766,18 +737,17 @@ class ServerNode(PGChildNodeView):
                     status=410,
                     success=0,
                     errormsg=gettext(
-                        "Could not find the required parameter (%s)." % arg
-                    )
+                        "Could not find the required parameter ({})."
+                    ).format(arg)
                 )
 
-        if 'hostaddr' in data and data['hostaddr'] and data['hostaddr'] != '':
-            if not self.pat4.match(data['hostaddr']):
-                if not self.pat6.match(data['hostaddr']):
-                    return make_json_response(
-                        success=0,
-                        status=400,
-                        errormsg=gettext('Host address not valid')
-                    )
+        if 'hostaddr' in data and data['hostaddr'] and data['hostaddr'] != '' \
+                and not is_valid_ipaddress(data['hostaddr']):
+            return make_json_response(
+                success=0,
+                status=400,
+                errormsg=gettext('Not a valid Host address')
+            )
 
         # To check ssl configuration
         is_ssl, data = self.check_ssl_fields(data)
@@ -794,6 +764,8 @@ class ServerNode(PGChildNodeView):
                 port=data.get('port'),
                 maintenance_db=data.get('db', None),
                 username=data.get('username'),
+                save_password=1 if data.get('save_password', False) and
+                config.ALLOW_SAVE_PASSWORD else 0,
                 ssl_mode=data.get('sslmode'),
                 comment=data.get('comment', None),
                 role=data.get('role', None),
@@ -864,7 +836,8 @@ class ServerNode(PGChildNodeView):
                         status=401,
                         success=0,
                         errormsg=gettext(
-                            u"Unable to connect to server:\n\n%s" % errmsg)
+                            u"Unable to connect to server:\n\n{}"
+                        ).format(errmsg)
                     )
                 else:
                     if 'save_password' in data and data['save_password'] and \
@@ -893,7 +866,10 @@ class ServerNode(PGChildNodeView):
                     connected=connected,
                     server_type=manager.server_type
                     if manager and manager.server_type
-                    else 'pg'
+                    else 'pg',
+                    version=manager.version
+                    if manager and manager.version
+                    else None
                 )
             )
 
@@ -1056,7 +1032,7 @@ class ServerNode(PGChildNodeView):
                     tunnel_password = server.tunnel_password
             else:
                 tunnel_password = data['tunnel_password'] \
-                    if 'tunnel_password'in data else ''
+                    if 'tunnel_password' in data else ''
                 save_tunnel_password = data['save_tunnel_password'] \
                     if tunnel_password and 'save_tunnel_password' in data \
                     else False
@@ -1072,7 +1048,7 @@ class ServerNode(PGChildNodeView):
 
         if 'password' not in data:
             conn_passwd = getattr(conn, 'password', None)
-            if conn_passwd is None and server.password is None and \
+            if conn_passwd is None and not server.save_password and \
                     server.passfile is None and server.service is None:
                 prompt_password = True
             elif server.passfile and server.passfile != '':
@@ -1082,7 +1058,7 @@ class ServerNode(PGChildNodeView):
         else:
             password = data['password'] if 'password' in data else None
             save_password = data['save_password']\
-                if password and 'save_password' in data else False
+                if 'save_password' in data else False
 
             # Encrypt the password before saving with user's login
             # password key.
@@ -1128,9 +1104,15 @@ class ServerNode(PGChildNodeView):
         else:
             if save_password and config.ALLOW_SAVE_PASSWORD:
                 try:
+                    # If DB server is running in trust mode then password may
+                    # not be available but we don't need to ask password
+                    # every time user try to connect
+                    # 1 is True in SQLite as no boolean type
+                    setattr(server, 'save_password', 1)
                     # Save the encrypted password using the user's login
-                    # password key.
-                    setattr(server, 'password', password)
+                    # password key, if there is any password to save
+                    if password:
+                        setattr(server, 'password', password)
                     db.session.commit()
                 except Exception as e:
                     # Release Connection
@@ -1173,8 +1155,7 @@ class ServerNode(PGChildNodeView):
                     'user': manager.user_info,
                     'in_recovery': in_recovery,
                     'wal_pause': wal_paused,
-                    'is_password_saved': True if server.password is not None
-                    else False,
+                    'is_password_saved': bool(server.save_password),
                     'is_tunnel_password_saved': True
                     if server.tunnel_password is not None else False,
                 }
@@ -1266,13 +1247,14 @@ class ServerNode(PGChildNodeView):
                     data={
                         'status': 1,
                         'result': gettext(
-                            'Named restore point created: {0}'.format(
-                                restore_point_name))
+                            'Named restore point created: {0}').format(
+                                restore_point_name)
                     })
 
         except Exception as e:
-            current_app.logger.error(
-                'Named restore point creation failed ({0})'.format(str(e))
+            current_app.logger.error(gettext(
+                'Named restore point creation failed ({0})').format(
+                    str(e))
             )
             return internal_server_error(errormsg=str(e))
 
@@ -1305,22 +1287,21 @@ class ServerNode(PGChildNodeView):
 
             # If there is no password found for the server
             # then check for pgpass file
-            if not server.password and not manager.password:
-                if server.passfile and \
-                        manager.passfile and \
-                        server.passfile == manager.passfile:
-                    is_passfile = True
+            if not server.password and not manager.password and \
+                    server.passfile and manager.passfile and \
+                    server.passfile == manager.passfile:
+                is_passfile = True
 
             # Check for password only if there is no pgpass file used
-            if not is_passfile:
-                if data and ('password' not in data or data['password'] == ''):
-                    return make_json_response(
-                        status=400,
-                        success=0,
-                        errormsg=gettext(
-                            "Could not find the required parameter(s)."
-                        )
+            if not is_passfile and data and \
+                    ('password' not in data or data['password'] == ''):
+                return make_json_response(
+                    status=400,
+                    success=0,
+                    errormsg=gettext(
+                        "Could not find the required parameter(s)."
                     )
+                )
 
             if data and ('newPassword' not in data or
                          data['newPassword'] == '' or
@@ -1447,7 +1428,7 @@ class ServerNode(PGChildNodeView):
                     info=gettext('WAL replay paused'),
                     data={'in_recovery': True, 'wal_pause': pause}
                 )
-            return gone(errormsg=_('Please connect the server.'))
+            return gone(errormsg=gettext('Please connect the server.'))
         except Exception as e:
             current_app.logger.error(
                 'WAL replay pause/resume failed'
@@ -1505,14 +1486,13 @@ class ServerNode(PGChildNodeView):
             conn = manager.connection()
             if not conn.connected():
                 return gone(
-                    errormsg=_('Please connect the server.')
+                    errormsg=gettext('Please connect the server.')
                 )
 
-            if not server.password or not manager.password:
-                if server.passfile and \
-                        manager.passfile and \
-                        server.passfile == manager.passfile:
-                    is_pgpass = True
+            if (not server.password or not manager.password) and \
+                server.passfile and manager.passfile and \
+                    server.passfile == manager.passfile:
+                is_pgpass = True
             return make_json_response(
                 success=1,
                 data=dict({'is_pgpass': is_pgpass}),
@@ -1577,6 +1557,10 @@ class ServerNode(PGChildNodeView):
                 )
 
             setattr(server, 'password', None)
+            # If password was saved then clear the flag also
+            # 0 is False in SQLite db
+            if server.save_password:
+                setattr(server, 'save_password', 0)
             db.session.commit()
         except Exception as e:
             current_app.logger.error(

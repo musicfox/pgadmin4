@@ -190,7 +190,7 @@ define('pgadmin.node.database', [
 
           Alertify.confirm(
             gettext('Disconnect the database'),
-            pgadminUtils.sprintf(gettext('Are you sure you want to disconnect the database - %s?'), d.label),
+            gettext('Are you sure you want to disconnect the database - %s?', d.label),
             function() {
               var data = d;
               $.ajax({
@@ -228,7 +228,11 @@ define('pgadmin.node.database', [
                   t.unload(i);
                 });
             },
-            function() { return true; });
+            function() { return true; }
+          ).set('labels', {
+            ok: gettext('Yes'),
+            cancel: gettext('No'),
+          });
 
           return false;
         },
@@ -275,6 +279,7 @@ define('pgadmin.node.database', [
         defaults: {
           name: undefined,
           owner: undefined,
+          is_sys_obj: undefined,
           comment: undefined,
           encoding: 'UTF8',
           template: undefined,
@@ -317,31 +322,34 @@ define('pgadmin.node.database', [
           control: Backform.NodeListByNameControl, select2: { allowClear: false },
         },{
           id: 'acl', label: gettext('Privileges'), type: 'text',
-          group: gettext('Security'), mode: ['properties'], disabled: true,
+          group: gettext('Security'), mode: ['properties'],
         },{
           id: 'tblacl', label: gettext('Default TABLE privileges'), type: 'text',
-          group: gettext('Security'), mode: ['properties'], disabled: true,
+          group: gettext('Security'), mode: ['properties'],
         },{
           id: 'seqacl', label: gettext('Default SEQUENCE privileges'), type: 'text',
-          group: gettext('Security'), mode: ['properties'], disabled: true,
+          group: gettext('Security'), mode: ['properties'],
         },{
           id: 'funcacl', label: gettext('Default FUNCTION privileges'), type: 'text',
-          group: gettext('Security'), mode: ['properties'], disabled: true,
+          group: gettext('Security'), mode: ['properties'],
         },{
           id: 'typeacl', label: gettext('Default TYPE privileges'), type: 'text',
-          group: gettext('Security'), mode: ['properties'], disabled: true, min_version: 90200,
+          group: gettext('Security'), mode: ['properties'], min_version: 90200,
+        },{
+          id: 'is_sys_obj', label: gettext('System database?'),
+          cell:'boolean', type: 'switch', mode: ['properties'],
         },{
           id: 'comments', label: gettext('Comment'),
           editable: false, type: 'multiline',
         },{
           id: 'encoding', label: gettext('Encoding'),
           editable: false, type: 'text', group: gettext('Definition'),
-          disabled: function(m) { return !m.isNew(); }, url: 'get_encodings',
+          readonly: function(m) { return !m.isNew(); }, url: 'get_encodings',
           control: 'node-ajax-options', cache_level: 'server',
         },{
           id: 'template', label: gettext('Template'),
           editable: false, type: 'text', group: gettext('Definition'),
-          disabled: function(m) { return !m.isNew(); },
+          readonly: function(m) { return !m.isNew(); },
           control: 'node-list-by-name', url: 'get_databases', cache_level: 'server',
           select2: { allowClear: false }, mode: ['create'],
           transform: function(data, cell) {
@@ -374,12 +382,12 @@ define('pgadmin.node.database', [
         },{
           id: 'datcollate', label: gettext('Collation'),
           editable: false, type: 'text', group: gettext('Definition'),
-          disabled: function(m) { return !m.isNew(); }, url: 'get_ctypes',
+          readonly: function(m) { return !m.isNew(); }, url: 'get_ctypes',
           control: 'node-ajax-options', cache_level: 'server',
         },{
           id: 'datctype', label: gettext('Character type'),
           editable: false, type: 'text', group: gettext('Definition'),
-          disabled: function(m) { return !m.isNew(); }, url: 'get_ctypes',
+          readonly: function(m) { return !m.isNew(); }, url: 'get_ctypes',
           control: 'node-ajax-options', cache_level: 'server',
         },{
           id: 'datconnlimit', label: gettext('Connection limit'),
@@ -387,11 +395,11 @@ define('pgadmin.node.database', [
         },{
           id: 'is_template', label: gettext('Template?'),
           editable: false, type: 'switch', group: gettext('Definition'),
-          disabled: true,  mode: ['properties', 'edit'],
+          readonly: true,  mode: ['properties', 'edit'],
         },{
           id: 'datallowconn', label: gettext('Allow connections?'),
           editable: false, type: 'switch', group: gettext('Definition'),
-          mode: ['properties'], disabled: true,
+          mode: ['properties'],
         },{
           id: 'datacl', label: gettext('Privileges'), type: 'collection',
           model: pgBrowser.Node.PrivilegeRoleModel.extend({
@@ -477,8 +485,8 @@ define('pgadmin.node.database', [
       },
     };
 
-    var connect_to_database = function(obj, data, tree, item) {
-        connect(obj, data, tree, item);
+    var connect_to_database = function(obj, data, tree, item, _wasConnected) {
+        connect(obj, data, tree, item, _wasConnected);
       },
       connect = function (obj, data, tree, item, _wasConnected) {
         var wasConnected = _wasConnected || data.connected,
@@ -512,7 +520,6 @@ define('pgadmin.node.database', [
               tree.deselect(item);
               tree.setInode(item);
             }
-
             if (res && res.data) {
               if(typeof res.data.connected == 'boolean') {
                 data.connected = res.data.connected;
@@ -522,11 +529,17 @@ define('pgadmin.node.database', [
                 data.icon = res.data.icon;
                 tree.addIcon(item, {icon: data.icon});
               }
+              if(res.data.already_connected) {
+                res.info = gettext('Database already connected.');
+              }
               if(res.data.info_prefix) {
                 res.info = `${_.escape(res.data.info_prefix)} - ${res.info}`;
               }
-
-              Alertify.success(res.info);
+              if(res.data.already_connected) {
+                Alertify.info(res.info);
+              } else {
+                Alertify.success(res.info);
+              }
               obj.trigger('connected', obj, item, data);
               pgBrowser.Events.trigger(
                 'pgadmin:database:connected', item, data
@@ -561,6 +574,9 @@ define('pgadmin.node.database', [
             return onSuccess(res, obj, data, tree, item, wasConnected);
           }
         }).fail(function(xhr, status, error) {
+          if (xhr.status === 410) {
+            error = gettext('Error: Object not found - %s.', error);
+          }
           return onFailure(
             xhr, status, error, obj, data, tree, item, wasConnected
           );

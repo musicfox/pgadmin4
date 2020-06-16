@@ -18,6 +18,7 @@ from flask import Response, url_for, render_template, session, request, \
     current_app
 from flask_babelex import gettext
 from flask_security import login_required, current_user
+from urllib.parse import unquote
 
 from config import PG_DEFAULT_DRIVER, ON_DEMAND_RECORD_COUNT
 from pgadmin.misc.file_manager import Filemanager
@@ -45,17 +46,6 @@ from pgadmin.tools.sqleditor.utils.filter_dialog import FilterDialog
 from pgadmin.tools.sqleditor.utils.query_history import QueryHistory
 
 MODULE_NAME = 'sqleditor'
-
-# import unquote from urllib for python2.x and python3.x
-try:
-    from urllib import unquote
-except ImportError:
-    from urllib.parse import unquote
-
-if sys.version_info[0:2] <= (2, 7):
-    IS_PY2 = True
-else:
-    IS_PY2 = False
 
 
 class SqlEditorModule(PgAdminModule):
@@ -321,8 +311,7 @@ def extract_sql_from_network_parameters(request_data, request_arguments,
     if request_data:
         sql_parameters = json.loads(request_data, encoding='utf-8')
 
-        if (IS_PY2 and type(sql_parameters) is unicode) \
-                or type(sql_parameters) is str:
+        if type(sql_parameters) is str:
             return dict(sql=str(sql_parameters), explain_plan=None)
         return sql_parameters
     else:
@@ -412,17 +401,17 @@ def poll(trans_id):
 
                 # If trans_obj is a QueryToolCommand then check for updatable
                 # resultsets and primary keys
-                if isinstance(trans_obj, QueryToolCommand):
-                    if trans_obj.check_updatable_results_pkeys_oids():
-                        pk_names, primary_keys = trans_obj.get_primary_keys()
-                        session_obj['has_oids'] = trans_obj.has_oids()
-                        # Update command_obj in session obj
-                        session_obj['command_obj'] = pickle.dumps(
-                            trans_obj, -1)
-                        # If primary_keys exist, add them to the session_obj to
-                        # allow for saving any changes to the data
-                        if primary_keys is not None:
-                            session_obj['primary_keys'] = primary_keys
+                if isinstance(trans_obj, QueryToolCommand) and \
+                        trans_obj.check_updatable_results_pkeys_oids():
+                    pk_names, primary_keys = trans_obj.get_primary_keys()
+                    session_obj['has_oids'] = trans_obj.has_oids()
+                    # Update command_obj in session obj
+                    session_obj['command_obj'] = pickle.dumps(
+                        trans_obj, -1)
+                    # If primary_keys exist, add them to the session_obj to
+                    # allow for saving any changes to the data
+                    if primary_keys is not None:
+                        session_obj['primary_keys'] = primary_keys
 
                 if 'has_oids' in session_obj:
                     has_oids = session_obj['has_oids']
@@ -452,9 +441,6 @@ def poll(trans_id):
                         for col_type in types:
                             if col_type['oid'] == col_info['type_code']:
                                 typname = col_type['typname']
-
-                                typname = compose_type_name(col_info, typname)
-
                                 col_info['type_name'] = typname
 
                         # Using characters %, (, ) in the argument names is not
@@ -527,22 +513,6 @@ def poll(trans_id):
         },
         encoding=conn.python_encoding
     )
-
-
-def compose_type_name(col_info, typname):
-    # If column is of type character, character[],
-    # character varying and character varying[]
-    # then add internal size to it's name for the
-    # correct sql query.
-    if col_info['internal_size'] >= 0:
-        if typname == 'character' or typname == 'character varying':
-            typname = typname + '(' + str(col_info['internal_size']) + ')'
-        elif typname == 'character[]' or typname == 'character varying[]':
-            typname = '%s(%s)[]'.format(
-                typname[:-2],
-                str(col_info['internal_size'])
-            )
-    return typname
 
 
 @blueprint.route(
@@ -743,7 +713,8 @@ def save(trans_id):
             'query_results': query_results,
             '_rowid': _rowid,
             'transaction_status': transaction_status
-        }
+        },
+        encoding=conn.python_encoding
     )
 
 
@@ -1296,13 +1267,10 @@ def save_file():
             else:
                 output_file.write(file_content)
     except IOError as e:
-        if e.strerror == 'Permission denied':
-            err_msg = "Error: {0}".format(e.strerror)
-        else:
-            err_msg = "Error: {0}".format(e.strerror)
+        err_msg = gettext("Error: {0}").format(e.strerror)
         return internal_server_error(errormsg=err_msg)
     except Exception as e:
-        err_msg = "Error: {0}".format(e.strerror)
+        err_msg = gettext("Error: {0}").format(e.strerror)
         return internal_server_error(errormsg=err_msg)
 
     return make_json_response(
@@ -1350,14 +1318,18 @@ def start_query_download_tool(trans_id):
                         field_separator=blueprint.csv_field_separator.get(),
                         replace_nulls_with=blueprint.replace_nulls_with.get()
                     ),
-                    mimetype='text/csv'
+                    mimetype='text/csv' if
+                    blueprint.csv_field_separator.get() == ','
+                    else 'text/plain'
                 )
 
                 if 'filename' in data and data['filename'] != "":
                     filename = data['filename']
                 else:
                     import time
-                    filename = str(int(time.time())) + ".csv"
+                    filename = '{0}.{1}'. \
+                        format(int(time.time()), 'csv' if blueprint.
+                               csv_field_separator.get() == ',' else 'txt')
 
                 # We will try to encode report file name with latin-1
                 # If it fails then we will fallback to default ascii file name
@@ -1373,8 +1345,12 @@ def start_query_download_tool(trans_id):
                 ] = "attachment;filename={0}".format(filename)
 
                 return r
+        except (ConnectionLost, SSHTunnelConnectionLost):
+            raise
         except Exception as e:
-            err_msg = "Error: {0}".format(e.strerror)
+            current_app.logger.error(e)
+            err_msg = "Error: {0}".format(
+                e.strerror if hasattr(e, 'strerror') else str(e))
             return internal_server_error(errormsg=err_msg)
     else:
         return internal_server_error(

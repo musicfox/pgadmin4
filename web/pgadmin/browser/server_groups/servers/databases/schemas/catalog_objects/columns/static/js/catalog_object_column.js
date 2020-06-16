@@ -50,29 +50,33 @@ define('pgadmin.node.catalog_object_column', [
             cltype: undefined,
             collspcname: undefined,
             attacl: undefined,
+            is_sys_obj: undefined,
             description: undefined,
           },
           schema: [{
             id: 'attname', label: gettext('Column'), cell: 'string',
-            type: 'text', disabled: true,
+            type: 'text', readonly: true,
           },{
             id: 'attowner', label: gettext('Owner'), cell: 'string',
-            type: 'text', disabled: true,
+            type: 'text', readonly: true,
           },{
             id: 'attnum', label: gettext('Position'), cell: 'string',
-            type: 'text', disabled: true,
+            type: 'text', readonly: true,
           },{
             id: 'cltype', label: gettext('Data type'), cell: 'string',
-            group: gettext('Definition'), type: 'text', disabled: true,
+            group: gettext('Definition'), type: 'text', readonly: true,
           },{
             id: 'collspcname', label: gettext('Collation'), cell: 'string',
-            group: gettext('Definition'), type: 'text', disabled: true,
+            group: gettext('Definition'), type: 'text', readonly: true,
           },{
             id: 'attacl', label: gettext('Privileges'), cell: 'string',
-            group: gettext('Security'), type: 'text', disabled: true,
+            group: gettext('Security'), type: 'text', readonly: true,
+          },{
+            id: 'is_sys_obj', label: gettext('System column?'),
+            cell:'boolean', type: 'switch', mode: ['properties'],
           },{
             id: 'description', label: gettext('Comment'), cell: 'string',
-            type: 'multiline', disabled: true,
+            type: 'multiline', readonly: true,
           }],
         }),
       });

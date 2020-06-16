@@ -105,10 +105,13 @@ define('pgadmin.node.check_constraint', [
         // Check Constraint Schema
         schema: [{
           id: 'name', label: gettext('Name'), type:'text', cell:'string',
-          disabled: 'isDisabled',
+          readonly: 'isReadonly',
         },{
           id: 'oid', label: gettext('OID'), cell: 'string',
           type: 'text' , mode: ['properties'],
+        },{
+          id: 'is_sys_obj', label: gettext('System check constraint?'),
+          cell:'boolean', type: 'switch', mode: ['properties'],
         },{
           id: 'comment', label: gettext('Comment'), type: 'multiline', cell:
           'string', mode: ['properties', 'create', 'edit'],
@@ -126,12 +129,8 @@ define('pgadmin.node.check_constraint', [
           },
         },{
           id: 'consrc', label: gettext('Check'), type: 'multiline', cell:
-          'string', group: gettext('Definition'), mode: ['properties',
-            'create', 'edit'], disabled: function(m) {
-            return ((_.has(m, 'handler') &&
-              !_.isUndefined(m.handler) &&
-              !_.isUndefined(m.get('oid'))) || (_.isFunction(m.isNew) && !m.isNew()));
-          }, editable: false,
+          'string', group: gettext('Definition'), mode: ['properties', 'create', 'edit'],
+          readonly: 'isReadonly', editable: false,
         },{
           id: 'connoinherit', label: gettext('No inherit?'), type:
           'switch', cell: 'boolean', group: gettext('Definition'), mode:
@@ -149,10 +148,9 @@ define('pgadmin.node.check_constraint', [
               return true;
             }
 
-            return ((_.has(m, 'handler') &&
-              !_.isUndefined(m.handler) &&
-              !_.isUndefined(m.get('oid'))) || (_.isFunction(m.isNew) && !m.isNew()));
+            return false;
           },
+          readonly: 'isReadonly',
         },{
           id: 'convalidated', label: gettext('Don\'t validate?'), type: 'switch', cell:
           'boolean', group: gettext('Definition'), min_version: 90200,
@@ -189,18 +187,10 @@ define('pgadmin.node.check_constraint', [
           return null;
 
         },
-        isDisabled: function(m){
-          if ((_.has(m, 'handler') &&
-              !_.isUndefined(m.handler) &&
-              !_.isUndefined(m.get('oid'))) ||
-            (_.isFunction(m.isNew) && !m.isNew())) {
-            var server = (this.node_info || m.top.node_info).server;
-            if (server.version < 90200)
-            {
-              return true;
-            }
-          }
-          return false;
+        isReadonly: function(m) {
+          return ((_.has(m, 'handler') &&
+            !_.isUndefined(m.handler) &&
+            !_.isUndefined(m.get('oid'))) || (_.isFunction(m.isNew) && !m.isNew()));
         },
       }),
       // Below function will enable right click menu for creating check constraint.
@@ -220,11 +210,7 @@ define('pgadmin.node.check_constraint', [
           d = i ? t.itemData(i) : null;
         }
         // If node is under catalog then do not allow 'create' menu
-        if (_.indexOf(parents, 'catalog') > -1) {
-          return false;
-        } else {
-          return true;
-        }
+        return !(_.indexOf(parents, 'catalog') > -1);
       },
     });
 

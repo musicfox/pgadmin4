@@ -23,10 +23,6 @@ from pgadmin.utils.ajax import make_json_response, internal_server_error, \
     make_response as ajax_response, gone
 from pgadmin.utils.driver import get_driver
 from config import PG_DEFAULT_DRIVER
-from pgadmin.utils import IS_PY2
-# If we are in Python3
-if not IS_PY2:
-    unicode = str
 
 
 class ForeignDataWrapperModule(CollectionNodeModule):
@@ -211,10 +207,16 @@ class ForeignDataWrapperView(PGChildNodeView):
         def wrap(*args, **kwargs):
             # Here args[0] will hold self & kwargs will hold gid,sid,did
             self = args[0]
-            self.manager = get_driver(PG_DEFAULT_DRIVER).connection_manager(
+            driver = get_driver(PG_DEFAULT_DRIVER)
+            self.manager = driver.connection_manager(
                 kwargs['sid']
             )
             self.conn = self.manager.connection(did=kwargs['did'])
+            self.qtIdent = driver.qtIdent
+            self.datlastsysoid = \
+                self.manager.db_info[kwargs['did']]['datlastsysoid'] \
+                if self.manager.db_info is not None and \
+                kwargs['did'] in self.manager.db_info else 0
 
             # Set the template path for the SQL scripts
             self.template_path = 'foreign_data_wrappers/sql/#{0}#'.format(
@@ -345,6 +347,9 @@ class ForeignDataWrapperView(PGChildNodeView):
                         " wrapper information.")
             )
 
+        res['rows'][0]['is_sys_obj'] = (
+            res['rows'][0]['fdwoid'] <= self.datlastsysoid)
+
         if res['rows'][0]['fdwoptions'] is not None:
             res['rows'][0]['fdwoptions'] = tokenize_options(
                 res['rows'][0]['fdwoptions'],
@@ -393,8 +398,8 @@ class ForeignDataWrapperView(PGChildNodeView):
                     status=410,
                     success=0,
                     errormsg=gettext(
-                        "Could not find the required parameter (%s)." % arg
-                    )
+                        "Could not find the required parameter ({})."
+                    ).format(arg)
                 )
 
         try:
@@ -458,7 +463,7 @@ class ForeignDataWrapperView(PGChildNodeView):
         try:
             sql, name = self.get_sql(gid, sid, data, did, fid)
             # Most probably this is due to error
-            if not isinstance(sql, (str, unicode)):
+            if not isinstance(sql, str):
                 return sql
             status, res = self.conn.execute_scalar(sql)
             if not status:
@@ -566,7 +571,7 @@ class ForeignDataWrapperView(PGChildNodeView):
         try:
             sql, name = self.get_sql(gid, sid, data, did, fid)
             # Most probably this is due to error
-            if not isinstance(sql, (str, unicode)):
+            if not isinstance(sql, str):
                 return sql
             if sql == '':
                 sql = "--modified SQL"
@@ -705,7 +710,9 @@ class ForeignDataWrapperView(PGChildNodeView):
             return internal_server_error(errormsg=res)
         if len(res['rows']) == 0:
             return gone(
-                _("Could not find the foreign data wrapper on the server.")
+                gettext(
+                    "Could not find the foreign data wrapper on the server."
+                )
             )
 
         is_valid_options = False
@@ -744,11 +751,12 @@ class ForeignDataWrapperView(PGChildNodeView):
                               )
         sql += "\n"
 
-        sql_header = u"""-- Foreign Data Wrapper: {0}
+        sql_header = u"""-- Foreign Data Wrapper: {0}\n\n""".format(
+            res['rows'][0]['name'])
 
--- DROP FOREIGN DATA WRAPPER {0}
+        sql_header += """-- DROP FOREIGN DATA WRAPPER {0}
 
-""".format(res['rows'][0]['name'])
+""".format(self.qtIdent(self.conn, res['rows'][0]['name']))
 
         sql = sql_header + sql
 

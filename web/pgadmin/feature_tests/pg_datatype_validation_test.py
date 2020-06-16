@@ -86,11 +86,29 @@ class PGDataypeFeatureTest(BaseFeatureTest):
             NavMenuLocators.file_menu_css)
         file_menu.click()
 
-        pref_menu_item = self.page.find_by_css_selector(
-            NavMenuLocators.preference_menu_item_css)
-        pref_menu_item.click()
+        # pref_menu_item = self.page.find_by_css_selector(
+        #     NavMenuLocators.preference_menu_item_css)
+        # pref_menu_item.click()
+
+        self.page.retry_click(
+            (By.CSS_SELECTOR, NavMenuLocators.preference_menu_item_css),
+            (By.XPATH, NavMenuLocators.specified_preference_tree_node
+             .format('Browser'))
+        )
 
         wait = WebDriverWait(self.page.driver, 10)
+
+        browser_node = self.page.find_by_xpath(
+            NavMenuLocators.specified_preference_tree_node.format('Browser'))
+        if self.page.find_by_xpath(
+            NavMenuLocators.specified_pref_node_exp_status.
+                format('Browser')).get_attribute('aria-expanded') == 'false':
+            ActionChains(self.driver).double_click(browser_node).perform()
+
+        self.page.retry_click(
+            (By.XPATH, NavMenuLocators.specified_sub_node_of_pref_tree_node.
+             format('Browser', 'Display')),
+            (By.XPATH, NavMenuLocators.show_system_objects_pref_label_xpath))
 
         # Wait till the preference dialogue box is displayed by checking the
         # visibility of Show System Object label

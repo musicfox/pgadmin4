@@ -17,7 +17,6 @@ maintenance functions to be executed. Multiple versions are included in the
 following directories to allow use with different versions of the database
 server:
 
-* PostgreSQL 9.4: */usr/local/pgsql-9.4*
 * PostgreSQL 9.5: */usr/local/pgsql-9.5*
 * PostgreSQL 9.6: */usr/local/pgsql-9.6*
 * PostgreSQL 10: */usr/local/pgsql-10*
@@ -60,7 +59,7 @@ expected paths are /certs/server.crt and /certs/server.key
 
 Specify the local address that the servers listens on. The default should work
 for most users - in IPv4-only environments, this may need to be set to
-127.0.0.1.
+0.0.0.0.
 
 **PGADMIN_LISTEN_PORT**
 
@@ -115,8 +114,8 @@ instances.
 
 .. warning:: Warning: pgAdmin runs as the *pgadmin* user (UID: 5050) in the
     *pgadmin* group (GID: 5050) in the container. You must ensure that all files
-    are readable, and where necessary (e.g. the working/session directory) for
-    this user on the host machine. For example:
+    are readable, and where necessary (e.g. the working/session directory)
+    writeable for this user on the host machine. For example:
 
     .. code-block:: bash
 

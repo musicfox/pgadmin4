@@ -20,16 +20,11 @@ from config import PG_DEFAULT_DRIVER
 from pgadmin.browser.server_groups.servers.databases.schemas.utils \
     import SchemaChildModule
 from pgadmin.browser.utils import PGChildNodeView
-from pgadmin.utils import IS_PY2
 from pgadmin.utils.ajax import make_json_response, internal_server_error, \
     make_response as ajax_response, gone
 from pgadmin.utils.driver import get_driver
 from pgadmin.tools.schema_diff.node_registry import SchemaDiffRegistry
 from pgadmin.tools.schema_diff.compare import SchemaDiffObjectCompare
-
-# If we are in Python3
-if not IS_PY2:
-    unicode = str
 
 
 class FtsDictionaryModule(SchemaChildModule):
@@ -219,6 +214,11 @@ class FtsDictionaryView(PGChildNodeView, SchemaDiffObjectCompare):
             self.conn = self.manager.connection(did=kwargs['did'])
             driver = get_driver(PG_DEFAULT_DRIVER)
             self.qtIdent = driver.qtIdent
+            self.datlastsysoid = \
+                self.manager.db_info[kwargs['did']]['datlastsysoid'] \
+                if self.manager.db_info is not None and \
+                kwargs['did'] in self.manager.db_info else 0
+
             # Set the template path for the SQL scripts
             self.template_path = 'fts_dictionaries/sql/#{0}#'.format(
                 self.manager.version)
@@ -390,13 +390,16 @@ class FtsDictionaryView(PGChildNodeView, SchemaDiffObjectCompare):
                 "Could not find the FTS Dictionary node in the database node."
             ))
 
+        res['rows'][0]['is_sys_obj'] = (
+            res['rows'][0]['oid'] <= self.datlastsysoid)
+
         # Handle templates and its schema name properly
-        if res['rows'][0]['template_schema'] is not None:
-            if res['rows'][0]['template_schema'] != "pg_catalog":
-                res['rows'][0]['template'] = self.qtIdent(
-                    self.conn, res['rows'][0]['template_schema'],
-                    res['rows'][0]['template']
-                )
+        if res['rows'][0]['template_schema'] is not None and \
+                res['rows'][0]['template_schema'] != "pg_catalog":
+            res['rows'][0]['template'] = self.qtIdent(
+                self.conn, res['rows'][0]['template_schema'],
+                res['rows'][0]['template']
+            )
 
         if res['rows'][0]['options'] is not None:
             res['rows'][0]['options'] = self.tokenize_options(
@@ -431,7 +434,8 @@ class FtsDictionaryView(PGChildNodeView, SchemaDiffObjectCompare):
                     status=410,
                     success=0,
                     errormsg=_(
-                        "Could not find the required parameter (%s)." % arg)
+                        "Could not find the required parameter ({})."
+                    ).format(arg)
                 )
         # Fetch schema name from schema oid
         sql = render_template(
@@ -494,7 +498,7 @@ class FtsDictionaryView(PGChildNodeView, SchemaDiffObjectCompare):
         # Fetch sql query to update fts dictionary
         sql, name = self.get_sql(gid, sid, did, scid, data, dcid)
         # Most probably this is due to error
-        if not isinstance(sql, (str, unicode)):
+        if not isinstance(sql, str):
             return sql
 
         sql = sql.strip('\n').strip(' ')
@@ -527,7 +531,7 @@ class FtsDictionaryView(PGChildNodeView, SchemaDiffObjectCompare):
         )
 
     @check_precondition
-    def delete(self, gid, sid, did, scid, dcid=None):
+    def delete(self, gid, sid, did, scid, dcid=None, only_sql=False):
         """
         This function will drop the FTS Dictionary object
         :param gid: group id
@@ -535,6 +539,7 @@ class FtsDictionaryView(PGChildNodeView, SchemaDiffObjectCompare):
         :param did: database id
         :param scid: schema id
         :param dcid: FTS Dictionary id
+        :param only_sql: Return only sql if True
         """
         if dcid is None:
             data = request.form if request.form else json.loads(
@@ -581,6 +586,10 @@ class FtsDictionaryView(PGChildNodeView, SchemaDiffObjectCompare):
                                       cascade=cascade
                                       )
 
+                # Used for schema diff tool
+                if only_sql:
+                    return sql
+
                 status, res = self.conn.execute_scalar(sql)
                 if not status:
                     return internal_server_error(errormsg=res)
@@ -604,7 +613,6 @@ class FtsDictionaryView(PGChildNodeView, SchemaDiffObjectCompare):
         :param scid: schema id
         :param dcid: FTS Dictionary id
         """
-        # data = request.args
         data = {}
         for k, v in request.args.items():
             try:
@@ -620,7 +628,7 @@ class FtsDictionaryView(PGChildNodeView, SchemaDiffObjectCompare):
         # Fetch sql query for modified data
         SQL, name = self.get_sql(gid, sid, did, scid, data, dcid)
         # Most probably this is due to error
-        if not isinstance(SQL, (str, unicode)):
+        if not isinstance(SQL, str):
             return SQL
 
         if SQL == '':
@@ -661,12 +669,12 @@ class FtsDictionaryView(PGChildNodeView, SchemaDiffObjectCompare):
                 data['schema'] = old_data['schema']
 
             # Handle templates and its schema name properly
-            if old_data['template_schema'] is not None:
-                if old_data['template_schema'] != "pg_catalog":
-                    old_data['template'] = self.qtIdent(
-                        self.conn, old_data['template_schema'],
-                        old_data['template']
-                    )
+            if old_data['template_schema'] is not None and \
+                    old_data['template_schema'] != "pg_catalog":
+                old_data['template'] = self.qtIdent(
+                    self.conn, old_data['template_schema'],
+                    old_data['template']
+                )
 
             # If user has changed the schema then fetch new schema directly
             # using its oid otherwise fetch old schema name using its oid
@@ -748,7 +756,6 @@ class FtsDictionaryView(PGChildNodeView, SchemaDiffObjectCompare):
         if not status:
             return internal_server_error(errormsg=rset)
 
-        datlastsysoid = self.manager.db_info[did]['datlastsysoid']
         # Empty set is added before actual list as initially it will be visible
         # at template control while creating a new FTS Dictionary
         res = [{'label': '', 'value': ''}]
@@ -766,7 +773,8 @@ class FtsDictionaryView(PGChildNodeView, SchemaDiffObjectCompare):
         )
 
     @check_precondition
-    def sql(self, gid, sid, did, scid, dcid):
+    def sql(self, gid, sid, did, scid, dcid, diff_schema=None,
+            json_resp=True):
         """
         This function will reverse generate sql for sql panel
         :param gid: group id
@@ -774,6 +782,8 @@ class FtsDictionaryView(PGChildNodeView, SchemaDiffObjectCompare):
         :param did: database id
         :param scid: schema id
         :param dcid: FTS Dictionary id
+        :param diff_schema: Target Schema for schema diff
+        :param json_resp: True then return json response
         """
 
         sql = render_template(
@@ -792,12 +802,12 @@ class FtsDictionaryView(PGChildNodeView, SchemaDiffObjectCompare):
             ))
 
         # Handle templates and its schema name properly
-        if res['rows'][0]['template_schema'] is not None:
-            if res['rows'][0]['template_schema'] != "pg_catalog":
-                res['rows'][0]['template'] = self.qtIdent(
-                    self.conn, res['rows'][0]['template_schema'],
-                    res['rows'][0]['template']
-                )
+        if res['rows'][0]['template_schema'] is not None and \
+                res['rows'][0]['template_schema'] != "pg_catalog":
+            res['rows'][0]['template'] = self.qtIdent(
+                self.conn, res['rows'][0]['template_schema'],
+                res['rows'][0]['template']
+            )
 
         if res['rows'][0]['options'] is not None:
             res['rows'][0]['options'] = self.tokenize_options(
@@ -819,18 +829,23 @@ class FtsDictionaryView(PGChildNodeView, SchemaDiffObjectCompare):
         # Replace schema oid with schema name
         res['rows'][0]['schema'] = schema
 
+        if diff_schema:
+            res['rows'][0]['schema'] = diff_schema
+
         sql = render_template("/".join([self.template_path, 'create.sql']),
                               data=res['rows'][0],
                               conn=self.conn, is_displaying=True)
 
-        sql_header = u"""-- Text Search Dictionary: {0}
-
--- DROP TEXT SEARCH DICTIONARY {0};
-
+        sql_header = u"""-- Text Search Dictionary: {0}.{1}\n\n""".format(
+            res['rows'][0]['schema'], res['rows'][0]['name'])
+        sql_header += """-- DROP TEXT SEARCH DICTIONARY {0};\n
 """.format(self.qtIdent(self.conn, res['rows'][0]['schema'],
                         res['rows'][0]['name']))
 
         sql = sql_header + sql
+
+        if not json_resp:
+            return sql
 
         return ajax_response(response=sql.strip('\n'))
 
@@ -897,5 +912,38 @@ class FtsDictionaryView(PGChildNodeView, SchemaDiffObjectCompare):
 
         return res
 
+    def get_sql_from_diff(self, gid, sid, did, scid, oid, data=None,
+                          diff_schema=None, drop_sql=False):
+        """
+        This function is used to get the DDL/DML statements.
+        :param gid: Group ID
+        :param sid: Serve ID
+        :param did: Database ID
+        :param scid: Schema ID
+        :param oid: Collation ID
+        :param data: Difference data
+        :param diff_schema: Target Schema
+        :param drop_sql: True if need to drop the fts configuration
+        :return:
+        """
+        sql = ''
+        if data:
+            if diff_schema:
+                data['schema'] = diff_schema
+            sql, name = self.get_sql(gid=gid, sid=sid, did=did, scid=scid,
+                                     data=data, dcid=oid)
+        else:
+            if drop_sql:
+                sql = self.delete(gid=gid, sid=sid, did=did,
+                                  scid=scid, dcid=oid, only_sql=True)
+            elif diff_schema:
+                sql = self.sql(gid=gid, sid=sid, did=did, scid=scid, dcid=oid,
+                               diff_schema=diff_schema, json_resp=False)
+            else:
+                sql = self.sql(gid=gid, sid=sid, did=did, scid=scid, dcid=oid,
+                               json_resp=False)
+        return sql
 
+
+SchemaDiffRegistry(blueprint.node_type, FtsDictionaryView)
 FtsDictionaryView.register_node_view(blueprint)

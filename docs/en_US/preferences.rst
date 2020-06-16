@@ -247,14 +247,14 @@ Use the fields on the *Auto Completion* panel to set the auto completion options
     :alt: Preferences dialog sqleditor csv output option
     :align: center
 
-Use the fields on the *CSV Output* panel to control the CSV output.
+Use the fields on the *CSV/TXT Output* panel to control the CSV/TXT output.
 
 * Use the *CSV field separator* drop-down listbox to specify the separator
-  character that will be used in CSV output.
+  character that will be used in CSV/TXT output.
 * Use the *CSV quote character* drop-down listbox to specify the quote character
-  that will be used in CSV output.
+  that will be used in CSV/TXT output.
 * Use the *CSV quoting* drop-down listbox to select the fields that will be
-  quoted in the CSV output; select *Strings*, *All*, or *None*.
+  quoted in the CSV/TXT output; select *Strings*, *All*, or *None*.
 * Use the *Replace null values with* option to replace null values with
   specified string in the output file. Default is set to 'NULL'.
 
@@ -355,6 +355,11 @@ Use the fields on the *Options* panel to manage editor preferences.
   *True*, the editor will prompt the user to commit or rollback changes when
   exiting the Query Tool while the current transaction is not committed.
 
+* When the *Sort View Data results by primary key columns?* If set to *True*,
+  data returned when using the View/Edit Data - All Rows option will be sorted
+  by the Primary Key columns by default. When using the First/Last 100 Rows options,
+  data is always sorted.
+
 .. image:: images/preferences_sql_results_grid.png
     :alt: Preferences dialog sql results grid section
     :align: center
@@ -375,6 +380,18 @@ Query Tool window navigation:
 .. image:: images/preferences_sql_keyboard_shortcuts.png
     :alt: Preferences dialog sql keyboard shortcuts section
     :align: center
+
+The Schema Diff Node
+********************
+
+Expand the *Schema Diff* node to specify your display preferences.
+
+.. image:: images/preferences_schema_diff.png
+    :alt: Preferences schema diff
+    :align: center
+
+Use the *Open in new browser tab* switch to indicate if you would like Schema Diff
+to open in a new tab.
 
 The Storage Node
 ****************
@@ -399,5 +416,3 @@ Use the fields on the *Options* panel to specify storage preferences.
 
 * When the *Show hidden files and folders?* switch is set to *True*, the file
   manager will display hidden files and folders.
-
-

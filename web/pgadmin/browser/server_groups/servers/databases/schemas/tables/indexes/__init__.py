@@ -24,18 +24,11 @@ from pgadmin.utils.ajax import make_json_response, internal_server_error, \
 from pgadmin.utils.compile_template_name import compile_template_path
 from pgadmin.utils.driver import get_driver
 from config import PG_DEFAULT_DRIVER
-from pgadmin.utils import IS_PY2
 from pgadmin.tools.schema_diff.node_registry import SchemaDiffRegistry
-from pgadmin.tools.schema_diff.directory_compare import compare_dictionaries,\
-    directory_diff
-from pgadmin.tools.schema_diff.model import SchemaDiffModel
+from pgadmin.tools.schema_diff.directory_compare import directory_diff
 from pgadmin.tools.schema_diff.compare import SchemaDiffObjectCompare
 from pgadmin.browser.server_groups.servers.databases.schemas. \
     tables.indexes import utils as index_utils
-
-# If we are in Python3
-if not IS_PY2:
-    unicode = str
 
 
 class IndexesModule(CollectionNodeModule):
@@ -235,8 +228,7 @@ class IndexesView(PGChildNodeView, SchemaDiffObjectCompare):
 
     # Schema Diff: Keys to ignore while comparing
     keys_to_ignore = ['oid', 'relowner', 'schema',
-                      'indrelid', 'nspname'
-                      ]
+                      'indrelid', 'nspname', 'oid-2']
 
     def check_precondition(f):
         """
@@ -579,11 +571,12 @@ class IndexesView(PGChildNodeView, SchemaDiffObjectCompare):
         for arg in required_args:
             err_msg = None
             if arg == 'columns' and len(data['columns']) < 1:
-                err_msg = "You must provide one or more column to create index"
+                err_msg = gettext("You must provide one or more column to "
+                                  "create index.")
 
             if arg not in data:
-                err_msg = "Could not find the required parameter (%s)." % \
-                          required_args[arg]
+                err_msg = gettext("Could not find the required parameter ({})"
+                                  ".").format(required_args[arg])
                 # Check if we have at least one column
             if err_msg is not None:
                 return make_json_response(
@@ -595,6 +588,8 @@ class IndexesView(PGChildNodeView, SchemaDiffObjectCompare):
         # Adding parent into data dict, will be using it while creating sql
         data['schema'] = self.schema
         data['table'] = self.table
+        if len(data['table']) == 0:
+            return gone(gettext("The specified table could not be found."))
 
         try:
             # Start transaction.
@@ -743,7 +738,7 @@ class IndexesView(PGChildNodeView, SchemaDiffObjectCompare):
         try:
             SQL, name = index_utils.get_sql(
                 self.conn, data, did, tid, idx, self.datlastsysoid)
-            if not isinstance(SQL, (str, unicode)):
+            if not isinstance(SQL, str):
                 return SQL
             SQL = SQL.strip('\n').strip(' ')
             status, res = self.conn.execute_scalar(SQL)
@@ -794,7 +789,7 @@ class IndexesView(PGChildNodeView, SchemaDiffObjectCompare):
             sql, name = index_utils.get_sql(
                 self.conn, data, did, tid, idx, self.datlastsysoid,
                 mode='create')
-            if not isinstance(sql, (str, unicode)):
+            if not isinstance(sql, str):
                 return sql
             sql = sql.strip('\n').strip(' ')
             if sql == '':
@@ -830,27 +825,36 @@ class IndexesView(PGChildNodeView, SchemaDiffObjectCompare):
     def get_sql_from_index_diff(self, sid, did, scid, tid, idx, data=None,
                                 diff_schema=None, drop_req=False):
 
-        tmp_idx = idx
-        schema = ''
+        sql = ''
         if data:
-            schema = self.schema
+            data['schema'] = self.schema
+            data['nspname'] = self.schema
+            data['table'] = self.table
+
+            sql, name = index_utils.get_sql(
+                self.conn, data, did, tid, idx, self.datlastsysoid,
+                mode='create')
+
+            sql = sql.strip('\n').strip(' ')
+
         elif diff_schema:
             schema = diff_schema
 
-        sql = index_utils.get_reverse_engineered_sql(
-            self.conn, schema,
-            self.table, did, tid, idx,
-            self.datlastsysoid,
-            template_path=None, with_header=False)
+            sql = index_utils.get_reverse_engineered_sql(
+                self.conn, schema,
+                self.table, did, tid, idx,
+                self.datlastsysoid,
+                template_path=None, with_header=False)
 
         drop_sql = ''
         if drop_req:
-            drop_sql = '\n' + render_template(
-                "/".join([self.template_path, 'delete.sql']),
-                data=data, conn=self.conn
-            )
+            drop_sql = '\n' + self.delete(gid=1, sid=sid, did=did,
+                                          scid=scid, tid=tid,
+                                          idx=idx, only_sql=True)
 
-        return drop_sql + '\n\n' + sql
+        if drop_sql != '':
+            sql = drop_sql + '\n\n' + sql
+        return sql
 
     @check_precondition
     def dependents(self, gid, sid, did, scid, tid, idx):
@@ -975,8 +979,7 @@ class IndexesView(PGChildNodeView, SchemaDiffObjectCompare):
         )
 
     @check_precondition
-    def fetch_objects_to_compare(self, sid, did, scid, tid, oid=None,
-                                 ignore_keys=False):
+    def fetch_objects_to_compare(self, sid, did, scid, tid, oid=None):
         """
         This function will fetch the list of all the indexes for
         specified schema id.
@@ -984,6 +987,7 @@ class IndexesView(PGChildNodeView, SchemaDiffObjectCompare):
         :param sid: Server Id
         :param did: Database Id
         :param scid: Schema Id
+        :param oid: Index Id
         :return:
         """
 
@@ -1001,10 +1005,6 @@ class IndexesView(PGChildNodeView, SchemaDiffObjectCompare):
                 status, data = self._fetch_properties(did, tid,
                                                       row['oid'])
                 if status:
-                    if ignore_keys:
-                        for key in self.keys_to_ignore:
-                            if key in data:
-                                del data[key]
                     res[row['name']] = data
         else:
             status, data = self._fetch_properties(did, tid,
@@ -1018,55 +1018,35 @@ class IndexesView(PGChildNodeView, SchemaDiffObjectCompare):
 
     def ddl_compare(self, **kwargs):
         """
-        This function will compare index properties and
-         return the difference of SQL
+        This function returns the DDL/DML statements based on the
+        comparison status.
+
+        :param kwargs:
+        :return:
         """
 
-        src_sid = kwargs.get('source_sid')
-        src_did = kwargs.get('source_did')
-        src_scid = kwargs.get('source_scid')
-        src_tid = kwargs.get('source_tid')
-        src_oid = kwargs.get('source_oid')
-        tar_sid = kwargs.get('target_sid')
-        tar_did = kwargs.get('target_did')
-        tar_scid = kwargs.get('target_scid')
-        tar_tid = kwargs.get('target_tid')
-        tar_oid = kwargs.get('target_oid')
+        src_params = kwargs.get('source_params')
+        tgt_params = kwargs.get('target_params')
+        source = kwargs.get('source')
+        target = kwargs.get('target')
+        target_schema = kwargs.get('target_schema')
         comp_status = kwargs.get('comp_status')
 
-        source = ''
-        target = ''
         diff = ''
-
-        status, target_schema = self.get_schema(tar_sid,
-                                                tar_did,
-                                                tar_scid
-                                                )
-        if not status:
-            return internal_server_error(errormsg=target_schema)
-
-        if comp_status == SchemaDiffModel.COMPARISON_STATUS['source_only']:
-            diff = self.get_sql_from_index_diff(sid=src_sid,
-                                                did=src_did, scid=src_scid,
-                                                tid=src_tid, idx=src_oid,
+        if comp_status == 'source_only':
+            diff = self.get_sql_from_index_diff(sid=src_params['sid'],
+                                                did=src_params['did'],
+                                                scid=src_params['scid'],
+                                                tid=src_params['tid'],
+                                                idx=source['oid'],
                                                 diff_schema=target_schema)
+        elif comp_status == 'target_only':
+            diff = self.delete(gid=1, sid=tgt_params['sid'],
+                               did=tgt_params['did'], scid=tgt_params['scid'],
+                               tid=tgt_params['tid'], idx=target['oid'],
+                               only_sql=True)
 
-        elif comp_status == SchemaDiffModel.COMPARISON_STATUS['target_only']:
-            diff = self.delete(gid=1, sid=tar_sid, did=tar_did,
-                               scid=tar_scid, tid=tar_tid,
-                               idx=tar_oid, only_sql=True)
-
-        else:
-            source = self.fetch_objects_to_compare(sid=src_sid, did=src_did,
-                                                   scid=src_scid, tid=src_tid,
-                                                   oid=src_oid)
-            target = self.fetch_objects_to_compare(sid=tar_sid, did=tar_did,
-                                                   scid=tar_scid, tid=tar_tid,
-                                                   oid=tar_oid)
-
-            if not (source or target):
-                return None
-
+        elif comp_status == 'different':
             diff_dict = directory_diff(
                 source, target, ignore_keys=self.keys_to_ignore,
                 difference={}
@@ -1077,22 +1057,30 @@ class IndexesView(PGChildNodeView, SchemaDiffObjectCompare):
 
             for key in required_create_keys:
                 if key in diff_dict:
-                    create_req = True
+                    if (key == 'columns' and ((
+                            'added' in diff_dict[key] and
+                            len(diff_dict[key]['added']) > 0
+                    ) or ('changed' in diff_dict[key] and
+                          len(diff_dict[key]['changed']) > 0) or (
+                            'deleted' in diff_dict[key] and
+                            len(diff_dict[key]['deleted']) > 0)
+                    )) or key != 'columns':
+                        create_req = True
 
             if create_req:
-                diff = self.get_sql_from_index_diff(sid=src_sid,
-                                                    did=src_did,
-                                                    scid=src_scid,
-                                                    tid=src_tid,
-                                                    idx=src_oid,
+                diff = self.get_sql_from_index_diff(sid=tgt_params['sid'],
+                                                    did=tgt_params['did'],
+                                                    scid=tgt_params['scid'],
+                                                    tid=tgt_params['tid'],
+                                                    idx=target['oid'],
                                                     diff_schema=target_schema,
                                                     drop_req=True)
             else:
-                diff = self.get_sql_from_index_diff(sid=tar_sid,
-                                                    did=tar_did,
-                                                    scid=tar_scid,
-                                                    tid=tar_tid,
-                                                    idx=tar_oid,
+                diff = self.get_sql_from_index_diff(sid=tgt_params['sid'],
+                                                    did=tgt_params['did'],
+                                                    scid=tgt_params['scid'],
+                                                    tid=tgt_params['tid'],
+                                                    idx=target['oid'],
                                                     data=diff_dict)
 
         return diff

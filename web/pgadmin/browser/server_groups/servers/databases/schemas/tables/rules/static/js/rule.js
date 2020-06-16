@@ -134,9 +134,7 @@ define('pgadmin.node.rule', [
             if (m && m.get('name') == '_RETURN') {
               return true;
             }
-            if (m.isNew()) {
-              return false;
-            } else if (m.node_info.server.version >= 90400) {
+            if (m.isNew() || m.node_info.server.version >= 90400) {
               return false;
             }
             return true;
@@ -144,7 +142,7 @@ define('pgadmin.node.rule', [
         },
         {
           id: 'oid', label: gettext('OID'),
-          type: 'text', disabled: true, mode: ['properties'],
+          type: 'text', mode: ['properties'],
         },
         {
           id: 'schema', label:'',
@@ -169,10 +167,10 @@ define('pgadmin.node.rule', [
             allowClear: false,
           },
           options:[
-            {label: 'Select', value: 'Select'},
-            {label: 'Insert', value: 'Insert'},
-            {label: 'Update', value: 'Update'},
-            {label: 'Delete', value: 'Delete'},
+            {label: 'SELECT', value: 'SELECT'},
+            {label: 'INSERT', value: 'INSERT'},
+            {label: 'UPDATE', value: 'UPDATE'},
+            {label: 'DELETE', value: 'DELETE'},
           ],
         },
         {
@@ -249,7 +247,7 @@ define('pgadmin.node.rule', [
               prev_e = prev_j ? t.itemData(prev_j) : null,
               prev_k = t.hasParent(prev_j) ? t.parent(prev_j) : null,
               prev_f = prev_k ? t.itemData(prev_k) : null;
-            if( prev_f._type == 'catalog') {
+            if(!_.isNull(prev_f) && prev_f._type == 'catalog') {
               return false;
             } else {
               return true;
@@ -264,7 +262,7 @@ define('pgadmin.node.rule', [
             prev_i = t.hasParent(i) ? t.parent(i) : null;
             prev_j = t.hasParent(prev_i) ? t.parent(prev_i) : null;
             prev_e = prev_j ? t.itemData(prev_j) : null;
-            if(prev_e._type == 'schema') {
+            if(!_.isNull(prev_e) && prev_e._type == 'schema') {
               return true;
             }else{
               return false;

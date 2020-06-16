@@ -219,7 +219,7 @@ define('pgadmin.node.column', [
           deps:['name'], cellHeaderClasses:'width_percent_5',
           options: {
             onText: gettext('Yes'), offText: gettext('No'),
-            onColor: 'success', offColor: 'primary',
+            onColor: 'success', offColor: 'ternary',
           },
           visible: function(m) {
             return _.isUndefined(
@@ -344,7 +344,7 @@ define('pgadmin.node.column', [
         },{
           // Need to show this field only when creating new table [in SubNode control]
           id: 'inheritedfrom', label: gettext('Inherited from table'),
-          type: 'text', disabled: true, editable: false,
+          type: 'text', readonly: true, editable: false,
           cellHeaderClasses:'width_percent_10',
           visible: function(m) {
             return _.isUndefined(m.top.node_info['table'] || m.top.node_info['view'] || m.top.node_info['mview']);
@@ -524,7 +524,7 @@ define('pgadmin.node.column', [
           id: 'attnotnull', label: gettext('Not NULL?'), cell: 'switch',
           type: 'switch', cellHeaderClasses:'width_percent_20',
           group: gettext('Constraints'), editable: 'editable_check_for_table',
-          options: { onText: gettext('Yes'), offText: gettext('No'), onColor: 'success', offColor: 'primary' },
+          options: { onText: gettext('Yes'), offText: gettext('No'), onColor: 'success', offColor: 'ternary' },
           deps: ['colconstype'],
           disabled: function(m) {
             if (m.get('colconstype') == 'i') {
@@ -641,35 +641,31 @@ define('pgadmin.node.column', [
           id: 'genexpr', label: gettext('Expression'), type: 'text',
           mode: ['properties', 'create', 'edit'], group: gettext('Constraints'),
           min_version: 120000, deps: ['colconstype'], visible: 'isTypeGenerated',
-          disabled: function(m) {
+          readonly: function(m) {
             return !m.isNew();
           },
         },{
           id: 'is_pk', label: gettext('Primary key?'),
-          type: 'switch', disabled: true, mode: ['properties'],
+          type: 'switch', mode: ['properties'],
           group: gettext('Definition'),
         },{
           id: 'is_fk', label: gettext('Foreign key?'),
-          type: 'switch', disabled: true, mode: ['properties'],
+          type: 'switch', mode: ['properties'],
           group: gettext('Definition'),
         },{
           id: 'is_inherited', label: gettext('Inherited?'),
-          type: 'switch', disabled: true, mode: ['properties'],
+          type: 'switch', mode: ['properties'],
           group: gettext('Definition'),
         },{
           id: 'tbls_inherited', label: gettext('Inherited from table(s)'),
-          type: 'text', disabled: true, mode: ['properties'], deps: ['is_inherited'],
+          type: 'text', mode: ['properties'], deps: ['is_inherited'],
           group: gettext('Definition'),
           visible: function(m) {
-            if (!_.isUndefined(m.get('is_inherited')) && m.get('is_inherited')) {
-              return true;
-            } else {
-              return false;
-            }
+            return (!_.isUndefined(m.get('is_inherited')) && m.get('is_inherited'));
           },
         },{
           id: 'is_sys_column', label: gettext('System column?'), cell: 'string',
-          type: 'switch', disabled: true, mode: ['properties'],
+          type: 'switch', mode: ['properties'],
         },{
           id: 'description', label: gettext('Comment'), cell: 'string',
           type: 'multiline', mode: ['properties', 'create', 'edit'],
@@ -871,11 +867,7 @@ define('pgadmin.node.column', [
           if(this.node_info &&  'schema' in this.node_info)
           {
             // We will disable control if it's in 'edit' mode
-            if (m.isNew()) {
-              return false;
-            } else {
-              return true;
-            }
+            return !(m.isNew());
           }
           return true;
         },
@@ -903,11 +895,7 @@ define('pgadmin.node.column', [
               return false;
             }
             // if we are in edit mode
-            if (!_.isUndefined(m.get('attnum')) && m.get('attnum') > 0 ) {
-              return false;
-            } else {
-              return true;
-            }
+            return !(!_.isUndefined(m.get('attnum')) && m.get('attnum') > 0 );
           }
           return true;
         },
@@ -947,15 +935,11 @@ define('pgadmin.node.column', [
           d = i ? t.itemData(i) : null;
         }
         // If node is under catalog then do not allow 'create' menu
-        if (_.indexOf(parents, 'catalog') > -1 ||
-              _.indexOf(parents, 'coll-view') > -1 ||
-              _.indexOf(parents, 'coll-mview') > -1 ||
-              _.indexOf(parents, 'mview') > -1 ||
-              _.indexOf(parents, 'view') > -1) {
-          return false;
-        } else {
-          return true;
-        }
+        return !(_.indexOf(parents, 'catalog') > -1 ||
+          _.indexOf(parents, 'coll-view') > -1 ||
+          _.indexOf(parents, 'coll-mview') > -1 ||
+          _.indexOf(parents, 'mview') > -1 ||
+          _.indexOf(parents, 'view') > -1);
       },
     });
   }

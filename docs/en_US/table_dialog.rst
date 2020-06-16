@@ -26,6 +26,8 @@ Use the fields in the *General* tab to identify the table:
   drop-down listbox in the *Schema* field.
 * Use the drop-down listbox in the *Tablespace* field to specify the tablespace
   in which the table will be stored.
+* Move the *Partitioned Table?* switch to the *Yes* in case you want to create a
+  partitioned table. Option is available for PostgreSQL 10 and above.
 * Store notes about the table in the *Comment* field.
 
 Click the *Columns* tab to continue.
@@ -393,6 +395,14 @@ Use the fields in the *Advanced* tab to define advanced features for the table:
 * Use the *Fill Factor* field to specify a fill factor for the table. The fill
   factor for a table is a percentage between 10 and 100. 100 (complete packing)
   is the default.
+* Use the *Toast tuple target* field to set toast_tuple_target storage
+  parameter of the table. The toast_tuple_target value is in bytes and has
+  minimum value of 128. This field will be enabled only for
+  PostgreSQL version >= 11
+* Use the *Parallel workers* field to set parallel_workers storage
+  parameter of the table. The parallel_workers sets the number of workers that
+  should be used to assist a parallel scan of the table. This field will be
+  enabled only for PostgreSQL version >= 9.6
 * Move the *Has OIDs?* switch to the *Yes* position to specify that each row
   within a table has a system-assigned object identifier. The default is *No*.
 * Move the *Unlogged?* switch to the *Yes* position to disable logging for the
@@ -449,6 +459,21 @@ icon (+) to add each partition:
 * If partition type is Hash then *Modulus* and *Remainder* fields will be
   enabled.
 
+Users can create a partition and define them as a partitioned table. Click
+the *Edit* icon to expand the properties of a partition.
+Use the *Partition* tab to create that partition as a partitioned table.
+
+* Move the *Partitioned Table?* switch to the *Yes* in case you want to create a
+  partitioned table.
+* Select a partition type from the *Partition Type* selection box.
+* Use the *Partition Keys* panel to define the partition keys.
+
+View of multi level Partitioned Table in browser tree:
+
+.. image:: images/table_partition_tree.png
+    :alt: Table dialog partition tree
+    :align: center
+
 Click the *Parameter* tab to continue.
 
 .. image:: images/table_parameter.png
@@ -460,10 +485,10 @@ thresholds; use the *Table* tab and the *Toast Table* tab to customize values
 for the table and the associated toast table:
 
 * Move the *Custom auto-vacuum?* switch to the *Yes* position to perform custom
-  maintenance on the table.
-* Move the *Enabled?* switch to the *Yes* position to select values in the
+  maintenance on the table and to select values in the
   *Vacuum table*. The *Vacuum Table* provides default values for maintenance
   operations.
+* Changing *Autovacuum enabled?* to *Not set* will reset autovacuum_enabled.
 
 Provide a custom value in the *Value* column for each metric listed in the
 *Label* column.

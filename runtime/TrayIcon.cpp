@@ -14,19 +14,6 @@
 
 TrayIcon::TrayIcon()
 {
-    m_trayIcon = Q_NULLPTR;
-    m_trayIconMenu = Q_NULLPTR;
-
-    m_newAction = Q_NULLPTR;
-    m_configAction = Q_NULLPTR;
-    m_logAction = Q_NULLPTR;
-    m_quitAction = Q_NULLPTR;
-    m_menuActions = Q_NULLPTR;
-}
-
-TrayIcon::~TrayIcon()
-{
-
 }
 
 void TrayIcon::Init()

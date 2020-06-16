@@ -58,6 +58,7 @@ define('pgadmin.node.mview', [
       hasDepends: true,
       hasScriptTypes: ['create', 'select'],
       collection_type: 'coll-mview',
+      width: pgBrowser.stdW.md + 'px',
       Init: function() {
 
         // Avoid mulitple registration of menus
@@ -140,8 +141,8 @@ define('pgadmin.node.mview', [
         },
         defaults: {
           spcname: undefined,
-          toast_autovacuum_enabled: false,
-          autovacuum_enabled: false,
+          toast_autovacuum_enabled: 'x',
+          autovacuum_enabled: 'x',
           warn_text: undefined,
         },
         schema: [{
@@ -149,7 +150,7 @@ define('pgadmin.node.mview', [
           type: 'text', disabled: 'inSchema',
         },{
           id: 'oid', label: gettext('OID'), cell: 'string',
-          type: 'text', disabled: true, mode: ['properties'],
+          type: 'text', mode: ['properties'],
         },{
           id: 'owner', label: gettext('Owner'), cell: 'string',
           control: 'node-list-by-name', select2: { allowClear: false },
@@ -160,8 +161,8 @@ define('pgadmin.node.mview', [
           node: 'schema', mode: ['create', 'edit'], cache_node: 'database',
           disabled: 'inSchema', select2: { allowClear: false },
         },{
-          id: 'system_view', label: gettext('System view?'), cell: 'string',
-          type: 'switch', disabled: true, mode: ['properties'],
+          id: 'system_view', label: gettext('System materialized view?'), cell: 'string',
+          type: 'switch', mode: ['properties'],
         }, pgBrowser.SecurityGroupSchema, {
           id: 'acl', label: gettext('Privileges'),
           mode: ['properties'], type: 'text', group: gettext('Security'),
@@ -177,7 +178,10 @@ define('pgadmin.node.mview', [
               Backform.SqlCodeControl.prototype.onChange.apply(this, arguments);
               if(this.model && this.model.changed) {
                 if(this.model.origSessAttrs && (this.model.changed.definition != this.model.origSessAttrs.definition)) {
-                  this.model.warn_text = gettext('Updating the definition will drop and re-create the materialized view. It may result in loss of information about its dependent objects. Do you want to continue?');
+                  this.model.warn_text = gettext(
+                    'Updating the definition will drop and re-create the materialized view. It may result in loss of information about its dependent objects.'
+                  ) + '<br><br><b>' + gettext('Do you want to continue?') +
+                    '</b>';
                 }
                 else {
                   this.model.warn_text = undefined;
@@ -205,6 +209,9 @@ define('pgadmin.node.mview', [
           group: gettext('Storage'), mode: ['edit', 'create'],
           type: 'int', min: 10, max: 100,
         },{
+          id: 'vacuum_settings_str', label: gettext('Storage settings'),
+          type: 'multiline', group: gettext('Storage'), mode: ['properties'],
+        },{
           type: 'nested', control: 'tab', id: 'materialization',
           label: gettext('Parameter'), mode: ['edit', 'create'],
           group: gettext('Parameter'),
@@ -225,6 +232,16 @@ define('pgadmin.node.mview', [
           mode: ['edit', 'create'], canAdd: true,
           control: 'unique-col-collection', uniqueCol : ['provider'],
         }],
+        sessChanged: function() {
+          /* If only custom autovacuum option is enabled the check if the options table is also changed. */
+          if(_.size(this.sessAttrs) == 2 && this.sessAttrs['autovacuum_custom'] && this.sessAttrs['toast_autovacuum']) {
+            return this.get('vacuum_table').sessChanged() || this.get('vacuum_toast').sessChanged();
+          }
+          if(_.size(this.sessAttrs) == 1 && (this.sessAttrs['autovacuum_custom'] || this.sessAttrs['toast_autovacuum'])) {
+            return this.get('vacuum_table').sessChanged() || this.get('vacuum_toast').sessChanged();
+          }
+          return pgBrowser.DataModel.prototype.sessChanged.apply(this);
+        },
         validate: function(keys) {
 
           // Triggers specific error messages for fields
@@ -232,9 +249,11 @@ define('pgadmin.node.mview', [
             errmsg,
             field_name = this.get('name'),
             field_def = this.get('definition');
-          if (_.indexOf(keys, 'autovacuum_enabled') != -1 ||
+
+          if(_.indexOf(keys, 'autovacuum_custom'))
+            if (_.indexOf(keys, 'autovacuum_enabled') != -1 ||
               _.indexOf(keys, 'toast_autovacuum_enabled') != -1 )
-            return null;
+              return null;
 
           if (_.isUndefined(field_name) || _.isNull(field_name) ||
             String(field_name).replace(/^\s+|\s+$/g, '') == '') {
@@ -272,40 +291,105 @@ define('pgadmin.node.mview', [
           obj = this,
           t = pgBrowser.tree,
           i = input.item || t.selected(),
-          d = i && i.length == 1 ? t.itemData(i) : undefined;
+          d = i && i.length == 1 ? t.itemData(i) : undefined,
+          server_data = null;
 
         if (!d)
           return false;
 
-        // Make ajax call to refresh mview data
-        $.ajax({
-          url: obj.generate_url(i, 'refresh_data' , d, true),
-          type: 'PUT',
-          data: {'concurrent': args.concurrent, 'with_data': args.with_data},
-          dataType: 'json',
-        })
-          .done(function(res) {
-            if (res.success == 1) {
-              Alertify.success(gettext('View refreshed successfully'));
-            }
-            else {
-              Alertify.alert(
-                gettext('Error refreshing view'),
-                res.data.result
-              );
-            }
-          })
-          .fail(function(xhr, status, error) {
-            Alertify.pgRespErrorNotify(xhr, error, gettext('Error refreshing view'));
-          });
+        let j = i;
+        while (j) {
+          var node_data = pgBrowser.tree.itemData(j);
+          if (node_data._type == 'server') {
+            server_data = node_data;
+            break;
+          }
 
+          if (pgBrowser.tree.hasParent(j)) {
+            j = $(pgBrowser.tree.parent(j));
+          } else {
+            Alertify.alert(gettext('Please select server or child node from tree.'));
+            break;
+          }
+        }
+
+        if (!server_data) {
+          return;
+        }
+
+        var module = 'paths',
+          preference_name = 'pg_bin_dir',
+          msg = gettext('Please configure the PostgreSQL Binary Path in the Preferences dialog.');
+
+        if ((server_data.type && server_data.type == 'ppas') ||
+          server_data.server_type == 'ppas') {
+          preference_name = 'ppas_bin_dir';
+          msg = gettext('Please configure the EDB Advanced Server Binary Path in the Preferences dialog.');
+        }
+
+        var preference = pgBrowser.get_preference(module, preference_name);
+
+        if (preference) {
+          if (!preference.value) {
+            Alertify.alert(gettext('Configuration required'), msg);
+            return;
+          }
+        } else {
+          Alertify.alert(gettext('Failed to load preference %s of module %s', preference_name, module));
+          return;
+        }
+
+        $.ajax({
+          url: obj.generate_url(i, 'check_utility_exists' , d, true),
+          type: 'GET',
+          dataType: 'json',
+        }).done(function(res) {
+          if (!res.success) {
+            Alertify.alert(
+              gettext('Utility not found'),
+              res.errormsg
+            );
+            return;
+          }
+          // Make ajax call to refresh mview data
+          $.ajax({
+            url: obj.generate_url(i, 'refresh_data' , d, true),
+            type: 'PUT',
+            data: {'concurrent': args.concurrent, 'with_data': args.with_data},
+            dataType: 'json',
+          })
+            .done(function(res) {
+              if (res.data && res.data.status) {
+              //Do nothing as we are creating the job and exiting from the main dialog
+                Alertify.success(res.data.info);
+                pgBrowser.Events.trigger('pgadmin-bgprocess:created', obj);
+              } else {
+                Alertify.alert(
+                  gettext('Failed to create materialized view refresh job.'),
+                  res.errormsg
+                );
+              }
+            })
+            .fail(function(xhr, status, error) {
+              Alertify.pgRespErrorNotify(
+                xhr, error, gettext('Failed to create materialized view refresh job.')
+              );
+            });
+        }).fail(function() {
+          Alertify.alert(
+            gettext('Utility not found'),
+            gettext('Failed to fetch Utility information')
+          );
+          return;
+        });
       },
+
       is_version_supported: function(data, item) {
         var t = pgAdmin.Browser.tree,
           i = item || t.selected(),
           d = data || (i && i.length == 1 ? t.itemData(i): undefined),
           node = this || (d && pgAdmin.Browser.Nodes[d._type]),
-          info = node.getTreeNodeHierarchy.apply(node, [i]),
+          info = node && node.getTreeNodeHierarchy.apply(node, [i]),
           version = info.server.version;
 
         // disable refresh concurrently if server version is 9.3

@@ -82,34 +82,30 @@ define('pgadmin.node.domain_constraints', [
         // Domain Constraint Schema
         schema: [{
           id: 'name', label: gettext('Name'), type:'text', cell:'string',
-          disabled: 'isDisabled',
         },{
           id: 'oid', label: gettext('OID'), cell: 'string',
           type: 'text' , mode: ['properties'],
+        },{
+          id: 'is_sys_obj', label: gettext('System domain constraint?'),
+          cell:'boolean', type: 'switch', mode: ['properties'],
         },{
           id: 'description', label: gettext('Comment'), type: 'multiline', cell:
           'string', mode: ['properties', 'create', 'edit'], min_version: 90500,
         },{
           id: 'consrc', label: gettext('Check'), type: 'multiline', cel:
           'string', group: gettext('Definition'), mode: ['properties',
-            'create', 'edit'], disabled: function(m) { return !m.isNew(); },
+            'create', 'edit'], readonly: function(m) { return !m.isNew(); },
         },{
           id: 'connoinherit', label: gettext('No inherit?'), type:
           'switch', cell: 'boolean', group: gettext('Definition'), mode:
-          ['properties', 'create', 'edit'], disabled: 'isDisabled',
+          ['properties', 'create', 'edit'],
           visible: false,
         },{
           id: 'convalidated', label: gettext('Validate?'), type: 'switch', cell:
           'boolean', group: gettext('Definition'), min_version: 90200,
           disabled: function(m) {
-            if (!m.isNew()) {
-              var server = this.node_info.server;
-              if (server.version < 90200) { return true;
-              }
-              else if(m.get('convalidated')) {
-                return true;
-              }
-              return false;
+            if (!m.isNew() && m.get('convalidated')) {
+              return true;
             }
             return false;
           },
@@ -122,12 +118,13 @@ define('pgadmin.node.domain_constraints', [
 
           if (_.isUndefined(this.get('name')) || String(this.get('name')).replace(/^\s+|\s+$/g, '') == '') {
             err['name'] = gettext('Name cannot be empty.');
-            errmsg = errmsg || err['name'];
+            errmsg = err['name'];
           }
 
           if (_.isUndefined(this.get('consrc')) || String(this.get('consrc')).replace(/^\s+|\s+$/g, '') == '') {
             err['consrc'] = gettext('Check cannot be empty.');
             errmsg = errmsg || err['consrc'];
+
           }
 
           this.errorModel.clear().set(err);
@@ -139,16 +136,6 @@ define('pgadmin.node.domain_constraints', [
 
           return null;
 
-        },
-        isDisabled: function(m){
-          if (!m.isNew()) {
-            var server = this.node_info.server;
-            if (server.version < 90200)
-            {
-              return true;
-            }
-          }
-          return false;
         },
       }),
     });

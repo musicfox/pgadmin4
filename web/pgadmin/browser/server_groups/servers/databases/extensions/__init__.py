@@ -22,27 +22,6 @@ from pgadmin.utils.ajax import make_json_response, \
 from pgadmin.utils.driver import get_driver
 from config import PG_DEFAULT_DRIVER
 
-# As unicode type is not available in python3
-# If we check a variable is "isinstance(variable, str)
-# it breaks in python 3 as variable type is not string its unicode.
-# We assign basestring as str type if it is python3, unicode
-# if it is python2.
-
-try:
-    unicode = unicode
-except NameError:
-    # 'unicode' is undefined, must be Python 3
-    str = str
-    unicode = str
-    bytes = bytes
-    basestring = (str, bytes)
-else:
-    # 'unicode' exists, must be Python 2
-    str = str
-    unicode = unicode
-    bytes = str
-    basestring = basestring
-
 
 class ExtensionModule(CollectionNodeModule):
     """
@@ -154,6 +133,11 @@ class ExtensionView(PGChildNodeView):
             self.conn = self.manager.connection(did=kwargs['did'])
             self.template_path = 'extensions/sql'
 
+            self.datlastsysoid = \
+                self.manager.db_info[kwargs['did']]['datlastsysoid'] \
+                if self.manager.db_info is not None and \
+                kwargs['did'] in self.manager.db_info else 0
+
             return f(*args, **kwargs)
 
         return wrap
@@ -238,6 +222,8 @@ class ExtensionView(PGChildNodeView):
                 gettext("Could not find the extension information.")
             )
 
+        res['rows'][0]['is_sys_obj'] = (
+            res['rows'][0]['eid'] <= self.datlastsysoid)
         return ajax_response(
             response=res['rows'][0],
             status=200
@@ -262,8 +248,8 @@ class ExtensionView(PGChildNodeView):
                     status=410,
                     success=0,
                     errormsg=gettext(
-                        "Could not find the required parameter (%s)." % arg
-                    )
+                        "Could not find the required parameter ({})."
+                    ).format(arg)
                 )
 
         status, res = self.conn.execute_dict(
@@ -308,7 +294,7 @@ class ExtensionView(PGChildNodeView):
         try:
             SQL, name = self.getSQL(gid, sid, data, did, eid)
             # Most probably this is due to error
-            if not isinstance(SQL, (str, unicode)):
+            if not isinstance(SQL, str):
                 return SQL
             SQL = SQL.strip('\n').strip(' ')
             status, res = self.conn.execute_dict(SQL)
@@ -386,7 +372,7 @@ class ExtensionView(PGChildNodeView):
         try:
             SQL, name = self.getSQL(gid, sid, data, did, eid)
             # Most probably this is due to error
-            if not isinstance(SQL, (str, unicode)):
+            if not isinstance(SQL, str):
                 return SQL
             SQL = SQL.strip('\n').strip(' ')
             if SQL == '':
@@ -475,7 +461,7 @@ class ExtensionView(PGChildNodeView):
             return internal_server_error(errormsg=res)
         if len(res['rows']) == 0:
             return gone(
-                _("Could not find the extension on the server.")
+                gettext("Could not find the extension on the server.")
             )
 
         result = res['rows'][0]

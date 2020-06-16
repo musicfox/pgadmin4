@@ -23,13 +23,8 @@ from pgadmin.utils.ajax import make_json_response, internal_server_error, \
     make_response as ajax_response, gone
 from pgadmin.utils.driver import get_driver
 from config import PG_DEFAULT_DRIVER
-from pgadmin.utils import IS_PY2
 from pgadmin.tools.schema_diff.node_registry import SchemaDiffRegistry
 from pgadmin.tools.schema_diff.compare import SchemaDiffObjectCompare
-
-# If we are in Python3
-if not IS_PY2:
-    unicode = str
 
 
 class SequenceModule(SchemaChildModule):
@@ -139,6 +134,10 @@ class SequenceView(PGChildNodeView, SchemaDiffObjectCompare):
                     self.conn = self.manager.connection(did=kwargs['did'])
                 else:
                     self.conn = self.manager.connection()
+                self.datlastsysoid = \
+                    self.manager.db_info[kwargs['did']]['datlastsysoid'] \
+                    if self.manager.db_info is not None and \
+                    kwargs['did'] in self.manager.db_info else 0
 
                 self.template_path = 'sequences/sql/#{0}#'.format(
                     self.manager.version
@@ -306,6 +305,9 @@ class SequenceView(PGChildNodeView, SchemaDiffObjectCompare):
             return False, gone(
                 _("Could not find the sequence in the database."))
 
+        res['rows'][0]['is_sys_obj'] = (
+            res['rows'][0]['oid'] <= self.datlastsysoid)
+
         for row in res['rows']:
             SQL = render_template(
                 "/".join([self.template_path, 'get_def.sql']),
@@ -381,8 +383,8 @@ class SequenceView(PGChildNodeView, SchemaDiffObjectCompare):
                     status=400,
                     success=0,
                     errormsg=_(
-                        "Could not find the required parameter (%s)." % arg
-                    )
+                        "Could not find the required parameter ({})."
+                    ).format(arg)
                 )
 
         try:
@@ -436,7 +438,7 @@ class SequenceView(PGChildNodeView, SchemaDiffObjectCompare):
         )
 
     @check_precondition(action='delete')
-    def delete(self, gid, sid, did, scid, seid=None):
+    def delete(self, gid, sid, did, scid, seid=None, only_sql=False):
         """
         This function will drop the object
 
@@ -446,6 +448,7 @@ class SequenceView(PGChildNodeView, SchemaDiffObjectCompare):
           did: Database ID
           scid: Schema ID
           seid: Sequence ID
+          only_sql: Return SQL only if True
 
         Returns:
 
@@ -489,6 +492,10 @@ class SequenceView(PGChildNodeView, SchemaDiffObjectCompare):
                     "/".join([self.template_path, 'delete.sql']),
                     data=res['rows'][0], cascade=cascade
                 )
+
+                if only_sql:
+                    return SQL
+
                 status, res = self.conn.execute_scalar(SQL)
                 if not status:
                     return internal_server_error(errormsg=res)
@@ -521,7 +528,7 @@ class SequenceView(PGChildNodeView, SchemaDiffObjectCompare):
         )
         SQL, name = self.getSQL(gid, sid, did, data, scid, seid)
         # Most probably this is due to error
-        if not isinstance(SQL, (str, unicode)):
+        if not isinstance(SQL, str):
             return SQL
 
         SQL = SQL.strip('\n').strip(' ')
@@ -585,12 +592,12 @@ class SequenceView(PGChildNodeView, SchemaDiffObjectCompare):
                         status=400,
                         success=0,
                         errormsg=_(
-                            "Could not find the required parameter (%s)." % arg
-                        )
+                            "Could not find the required parameter ({})."
+                        ).format(arg)
                     )
         SQL, name = self.getSQL(gid, sid, did, data, scid, seid)
         # Most probably this is due to error
-        if not isinstance(SQL, (str, unicode)):
+        if not isinstance(SQL, str):
             return SQL
 
         SQL = SQL.strip('\n').strip(' ')
@@ -675,7 +682,8 @@ class SequenceView(PGChildNodeView, SchemaDiffObjectCompare):
             return SQL, data['name']
 
     @check_precondition(action="sql")
-    def sql(self, gid, sid, did, scid, seid):
+    def sql(self, gid, sid, did, scid, seid, diff_schema=None,
+            json_resp=True):
         """
         This function will generate sql for sql panel
 
@@ -685,6 +693,8 @@ class SequenceView(PGChildNodeView, SchemaDiffObjectCompare):
             did: Database ID
             scid: Schema ID
             seid: Sequence ID
+            diff_schema:  Schema diff target schema name
+            json_resp: json response or plain text response
         """
 
         SQL = render_template(
@@ -710,20 +720,30 @@ class SequenceView(PGChildNodeView, SchemaDiffObjectCompare):
             row['minimum'] = rset1['rows'][0]['min_value']
             row['maximum'] = rset1['rows'][0]['max_value']
             row['increment'] = rset1['rows'][0]['increment_by']
+            row['start'] = rset1['rows'][0]['start_value']
             row['cache'] = rset1['rows'][0]['cache_value']
             row['cycled'] = rset1['rows'][0]['is_cycled']
 
         result = res['rows'][0]
+
+        if diff_schema:
+            result['schema'] = diff_schema
+
         result = self._formatter(result, scid, seid)
         SQL, name = self.getSQL(gid, sid, did, result, scid)
         # Most probably this is due to error
-        if not isinstance(SQL, (str, unicode)):
+        if not isinstance(SQL, str):
             return SQL
         SQL = SQL.strip('\n').strip(' ')
 
-        sql_header = u"""-- SEQUENCE: {0}
+        # Return sql for schema diff
+        if not json_resp:
+            return SQL
 
--- DROP SEQUENCE {0};
+        sql_header = u"""-- SEQUENCE: {0}.{1}\n\n""".format(
+            result['schema'], result['name'])
+
+        sql_header += """-- DROP SEQUENCE {0};
 
 """.format(self.qtIdent(self.conn, result['schema'], result['name']))
 
@@ -912,5 +932,37 @@ class SequenceView(PGChildNodeView, SchemaDiffObjectCompare):
 
         return res
 
+    def get_sql_from_diff(self, gid, sid, did, scid, oid, data=None,
+                          diff_schema=None, drop_sql=False):
+        """
+        This function is used to get the DDL/DML statements.
+        :param gid: Group ID
+        :param sid: Serve ID
+        :param did: Database ID
+        :param scid: Schema ID
+        :param oid: Sequence ID
+        :param data: Difference data
+        :param diff_schema: Target Schema
+        :param drop_sql: True if need to drop the domains
+        :return:
+        """
+        sql = ''
+        if data:
+            if diff_schema:
+                data['schema'] = diff_schema
+            sql, name = self.getSQL(gid, sid, did, data, scid, oid)
+        else:
+            if drop_sql:
+                sql = self.delete(gid=gid, sid=sid, did=did,
+                                  scid=scid, seid=oid, only_sql=True)
+            elif diff_schema:
+                sql = self.sql(gid=gid, sid=sid, did=did, scid=scid, seid=oid,
+                               diff_schema=diff_schema, json_resp=False)
+            else:
+                sql = self.sql(gid=gid, sid=sid, did=did, scid=scid, seid=oid,
+                               json_resp=False)
+        return sql
 
+
+SchemaDiffRegistry(blueprint.node_type, SequenceView)
 SequenceView.register_node_view(blueprint)

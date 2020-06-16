@@ -39,14 +39,14 @@ def register_browser_preferences(self):
         gettext("Browser tree state saving interval"), 'integer',
         30, category_label=gettext('Display'),
         help_str=gettext(
-            'Browser tree state saving interval in seconds.'
+            'Browser tree state saving interval in seconds. '
             'Use -1 to disable the tree saving mechanism.'
         )
     )
 
     self.preference.register(
         'display', 'confirm_on_refresh_close',
-        gettext("Confirm on close or refresh ?"), 'boolean',
+        gettext("Confirm on close or refresh?"), 'boolean',
         True, category_label=gettext('Display'),
         help_str=gettext(
             'Confirm closure or refresh of the browser or browser tab is '
@@ -56,7 +56,7 @@ def register_browser_preferences(self):
 
     self.preference.register(
         'display', 'confirm_on_properties_close',
-        gettext("Confirm before Close/Reset in object properties dialog ?"),
+        gettext("Confirm before Close/Reset in object properties dialog?"),
         'boolean',
         True, category_label=gettext('Display'),
         help_str=gettext(
@@ -244,6 +244,21 @@ def register_browser_preferences(self):
             'shift': True,
             'control': False,
             'key': {'key_code': 86, 'char': 'v'}
+        },
+        category_label=gettext('Keyboard shortcuts'),
+        fields=fields
+    )
+
+    self.preference.register(
+        'keyboard_shortcuts',
+        'sub_menu_search_objects',
+        gettext('Search objects'),
+        'keyboardshortcut',
+        {
+            'alt': True,
+            'shift': True,
+            'control': False,
+            'key': {'key_code': 83, 'char': 's'}
         },
         category_label=gettext('Keyboard shortcuts'),
         fields=fields

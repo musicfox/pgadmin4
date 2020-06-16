@@ -171,7 +171,7 @@ define('pgadmin.node.pga_jobstep', [
           options: {
             'onText': gettext('Local'), 'offText': gettext('Remote'),
             'onColor': 'primary', 'offColor': 'primary', width: '65',
-          }, helpMessage: gettext('Select <b>Local</b> if the job step will execute on the local database server, or <b>Remote</b> to specify a remote database server.'),
+          }, helpMessage: gettext('Select <strong>Local</strong> if the job step will execute on the local database server, or <strong>Remote</strong> to specify a remote database server.'),
         },{
           id: 'jstdbname', label: gettext('Database'), type: 'text',
           mode: ['properties'], disabled: function() { return false; },
@@ -190,8 +190,7 @@ define('pgadmin.node.pga_jobstep', [
           id: 'jstconnstr', label: gettext('Connection string'), type: 'text',
           deps: ['jstkind', 'jstconntype'], disabled: function(m) {
             return !m.get('jstkind') || m.get('jstconntype');
-          }, helpMessage: gettext('Please specify the connection string for the remote database server. Each parameter setting is in the form keyword = value. Spaces around the equal sign are optional. To write an empty value, or a value containing spaces, surround it with single quotes, e.g., keyword = \'a value\'. Single quotes and backslashes within the value must be escaped with a backslash, i.e., \' and \\.<br>For more information, please see the documentation on %s',
-            '<a href="https://www.postgresql.org/docs/current/libpq-connect.html#LIBPQ-CONNSTRING" target="_blank">libpq connection strings</a>'
+          }, helpMessage: gettext('Please specify the connection string for the remote database server. Each parameter setting is in the form keyword = value. Spaces around the equal sign are optional. To write an empty value, or a value containing spaces, surround it with single quotes, e.g., keyword = \'a value\'. Single quotes and backslashes within the value must be escaped with a backslash, i.e., \' and \\.<br>For more information, please see the documentation on <a href="https://www.postgresql.org/docs/current/libpq-connect.html#LIBPQ-CONNSTRING" target="_blank">libpq connection strings</a>.'
           ), mode: ['create', 'edit'],
         },{
           id: 'jstonerror', label: gettext('On error'), cell: 'select2',
@@ -305,7 +304,7 @@ define('pgadmin.node.pga_jobstep', [
             !_.isUndefined(val) && !_.isNull(val) &&
               String(val).replace(/^\s+|\s+$/g, '') == ''
           ) {
-            msg = gettext('Please select valid on error option .');
+            msg = gettext('Please select valid on error option.');
             this.errorModel.set('jstonerror', msg);
           } else {
             this.errorModel.unset('jstonerror');

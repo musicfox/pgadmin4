@@ -19,6 +19,7 @@ define('pgadmin.node.fts_configuration', [
 
   // Model for tokens control
   var TokenModel = pgAdmin.Browser.Node.Model.extend({
+    idAttribute: 'token',
     defaults: {
       token: undefined,
       dictname: undefined,
@@ -212,7 +213,7 @@ define('pgadmin.node.fts_configuration', [
           '   </div>',
           '   <div class="col-6" header="token"></div>',
           '   <div class="col-2">',
-          '     <button class="btn btn-sm-sq btn-secondary add fa fa-plus" <%=canAdd ? "" : "disabled=\'disabled\'"%> ></button>',
+          '     <button class="btn btn-sm-sq btn-secondary add fa fa-plus" <%=canAdd ? "" : "disabled=\'disabled\'"%> ><span class="sr-only">' + gettext('Add Token') + '</span></button>',
           '   </div>',
           '  </div>',
           ' </div>',
@@ -287,7 +288,7 @@ define('pgadmin.node.fts_configuration', [
 
         if (self.grid) {
           self.grid.remove();
-          self.grid.null;
+          self.grid = null;
         }
         // Initialize a new Grid instance
         var grid = self.grid = new Backgrid.Grid({
@@ -468,6 +469,7 @@ define('pgadmin.node.fts_configuration', [
         defaults: {
           name: undefined,        // FTS Configuration name
           owner: undefined,       // FTS Configuration owner
+          is_sys_obj: undefined,  // Is system object
           description: undefined, // Comment on FTS Configuration
           schema: undefined,      // Schema name FTS Configuration belongs to
           prsname: undefined,    // FTS parser list for FTS Configuration node
@@ -492,7 +494,7 @@ define('pgadmin.node.fts_configuration', [
           type: 'text', cellHeaderClasses: 'width_percent_50',
         },{
           id: 'oid', label: gettext('OID'), cell: 'string',
-          editable: false, type: 'text', disabled: true, mode:['properties'],
+          editable: false, type: 'text', mode:['properties'],
         },{
           id: 'owner', label: gettext('Owner'), cell: 'string',
           type: 'text', mode: ['properties', 'edit','create'], node: 'role',
@@ -502,6 +504,9 @@ define('pgadmin.node.fts_configuration', [
           type: 'text', mode: ['create','edit'], node: 'schema',
           control: 'node-list-by-id', cache_node: 'database',
           cache_level: 'database',
+        },{
+          id: 'is_sys_obj', label: gettext('System FTS configuration?'),
+          cell:'boolean', type: 'switch', mode: ['properties'],
         },{
           id: 'description', label: gettext('Comment'), cell: 'string',
           type: 'multiline', cellHeaderClasses: 'width_percent_50',
@@ -513,11 +518,11 @@ define('pgadmin.node.fts_configuration', [
           //disable parser when user select copy_config manually and vica-versa
           disabled: function(m) {
             var copy_config = m.get('copy_config');
-            return m.isNew() &&
-                    (_.isNull(copy_config) ||
+            return (_.isNull(copy_config) ||
                     _.isUndefined(copy_config) ||
                     copy_config === '') ? false : true;
           },
+          readonly: function(m) {return !m.isNew();},
         },{
           id: 'copy_config', label: gettext('Copy config'),type: 'text',
           mode: ['create'], group: gettext('Definition'),
@@ -526,11 +531,11 @@ define('pgadmin.node.fts_configuration', [
           //disable copy_config when user select parser manually and vica-versa
           disabled: function(m) {
             var parser = m.get('prsname');
-            return m.isNew() &&
-                    (_.isNull(parser) ||
+            return (_.isNull(parser) ||
                     _.isUndefined(parser) ||
                     parser === '') ? false : true;
           },
+          readonly: function(m) {return !m.isNew();},
         },{
           id: 'tokens', label: gettext('Tokens'), type: 'collection',
           group: gettext('Tokens'), control: TokenControl,

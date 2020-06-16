@@ -104,6 +104,7 @@ define('pgadmin.node.primary_key', [
         defaults: {
           name: undefined,
           oid: undefined,
+          is_sys_obj: undefined,
           comment: undefined,
           spcname: undefined,
           index: undefined,
@@ -123,6 +124,9 @@ define('pgadmin.node.primary_key', [
           id: 'oid', label: gettext('OID'), cell: 'string',
           type: 'text' , mode: ['properties'], editable: false,
           cellHeaderClasses:'width_percent_20',
+        },{
+          id: 'is_sys_obj', label: gettext('System primary key?'),
+          cell:'boolean', type: 'switch', mode: ['properties'],
         },{
           id: 'comment', label: gettext('Comment'), cell: 'string',
           type: 'multiline', mode: ['properties', 'create', 'edit'],
@@ -368,6 +372,14 @@ define('pgadmin.node.primary_key', [
                 Backform.MultiSelectAjaxControl.prototype.remove.apply(this, arguments);
               }
             },
+            render: function() {
+              var index = this.model.get('index');
+              if(!_.isUndefined(index) && index != '') {
+                var col = this.model.get('columns');
+                col.reset([], {silent: true});
+              }
+              return Backform.Select2Control.prototype.render.apply(this, arguments);
+            },
           }),
           deps: ['index'], node: 'column',
           model: pgBrowser.Node.Model.extend({
@@ -388,7 +400,7 @@ define('pgadmin.node.primary_key', [
             return res;
           },
           select2:{allowClear:false},
-          disabled: function(m) {
+          readonly: function(m) {
             // If we are in table edit mode then
             if (_.has(m, 'top') && !_.isUndefined(m.top)
               && !m.top.isNew()) {
@@ -401,15 +413,11 @@ define('pgadmin.node.primary_key', [
             if (!m.isNew()) {
               return true;
             }
+          },
+          disabled: function(m) {
             // Disable if index is selected.
             var index = m.get('index');
-            if(_.isUndefined(index) || index == '') {
-              return false;
-            } else {
-              var col = m.get('columns');
-              col.reset();
-              return true;
-            }
+            return !(_.isUndefined(index) || index == '');
           },
         },{
           id: 'include', label: gettext('Include columns'),
@@ -485,7 +493,7 @@ define('pgadmin.node.primary_key', [
             },
           }),
           deps: ['index'], node: 'column',
-          disabled: function(m) {
+          readonly: function(m) {
             // If we are in table edit mode then
             if (_.has(m, 'top') && !_.isUndefined(m.top)
               && !m.top.isNew()) {
@@ -498,13 +506,16 @@ define('pgadmin.node.primary_key', [
             if (!m.isNew()) {
               return true;
             }
+          },
+          disabled: function(m) {
             // Disable if index is selected.
             var index = m.get('index');
             if(_.isUndefined(index) || index == '') {
               return false;
             } else {
-              var col = m.get('columns');
-              col.reset();
+              setTimeout(function(){
+                m.set('include', []);
+              },10);
               return true;
             }
           },
@@ -542,7 +553,7 @@ define('pgadmin.node.primary_key', [
             },
           }),
           select2:{allowClear:true}, node: 'index',
-          disabled: function(m) {
+          readonly: function(m) {
             // If we are in table edit mode then disable it
             if (_.has(m, 'top') && !_.isUndefined(m.top)
               && !m.top.isNew()) {
@@ -574,7 +585,7 @@ define('pgadmin.node.primary_key', [
         },{
           id: 'condeferrable', label: gettext('Deferrable?'),
           type: 'switch', group: gettext('Definition'), deps: ['index'],
-          disabled: function(m) {
+          readonly: function(m) {
             // If we are in table edit mode then
             if (_.has(m, 'top') && !_.isUndefined(m.top)
               && !m.top.isNew()) {
@@ -587,6 +598,8 @@ define('pgadmin.node.primary_key', [
             if (!m.isNew()) {
               return true;
             }
+          },
+          disabled: function(m) {
             // Disable if index is selected.
             var index = m.get('index');
             if(_.isUndefined(index) || index == '') {
@@ -603,7 +616,7 @@ define('pgadmin.node.primary_key', [
           id: 'condeferred', label: gettext('Deferred?'),
           type: 'switch', group: gettext('Definition'),
           deps: ['condeferrable'],
-          disabled: function(m) {
+          readonly: function(m) {
             // If we are in table edit mode then
             if (_.has(m, 'top') && !_.isUndefined(m.top)
               && !m.top.isNew()) {
@@ -616,6 +629,8 @@ define('pgadmin.node.primary_key', [
             if (!m.isNew()) {
               return true;
             }
+          },
+          disabled: function(m) {
             // Disable if condeferred is false or unselected.
             if(m.get('condeferrable') == true) {
               return false;
@@ -641,7 +656,7 @@ define('pgadmin.node.primary_key', [
 
           if ((_.isUndefined(index) || String(index).replace(/^\s+|\s+$/g, '') == '') &&
             (_.isUndefined(columns) || _.isNull(columns) || columns.length < 1)) {
-            var msg = gettext('Please specify columns for %s', gettext('Primary key'));
+            var msg = gettext('Please specify columns for %s.', gettext('Primary key'));
             this.errorModel.set('columns', msg);
             return msg;
           }

@@ -23,6 +23,7 @@ from pgadmin.browser.utils import PGChildNodeView
 from pgadmin.utils.ajax import make_json_response, internal_server_error, \
     make_response as ajax_response, gone
 from pgadmin.utils.driver import get_driver
+from pgadmin.utils.exception import ObjectGone
 
 
 class DomainConstraintModule(CollectionNodeModule):
@@ -211,9 +212,8 @@ class DomainConstraintView(PGChildNodeView):
                             status=410,
                             success=0,
                             errormsg=gettext(
-                                "Could not find the required parameter (%s)." %
-                                arg
-                            )
+                                "Could not find the required parameter ({})."
+                            ).format(arg)
                         )
 
             try:
@@ -246,6 +246,10 @@ class DomainConstraintView(PGChildNodeView):
             self.manager = driver.connection_manager(kwargs['sid'])
             self.conn = self.manager.connection(did=kwargs['did'])
             self.qtIdent = driver.qtIdent
+            self.datlastsysoid = \
+                self.manager.db_info[kwargs['did']]['datlastsysoid'] \
+                if self.manager.db_info is not None and \
+                kwargs['did'] in self.manager.db_info else 0
 
             # Set the template path for the SQL scripts
             self.template_path = 'domain_constraints/sql/#{0}#'.format(
@@ -390,6 +394,8 @@ class DomainConstraintView(PGChildNodeView):
             )
 
         data = res['rows'][0]
+        data['is_sys_obj'] = (
+            data['oid'] <= self.datlastsysoid)
         return ajax_response(
             response=data,
             status=200
@@ -445,6 +451,8 @@ class DomainConstraintView(PGChildNodeView):
                     icon=icon
                 )
             )
+        except ObjectGone:
+            raise
         except Exception as e:
             return internal_server_error(errormsg=str(e))
 
@@ -681,6 +689,8 @@ class DomainConstraintView(PGChildNodeView):
                 return True, SQL.strip('\n'), data['name']
             else:
                 return True, SQL.strip('\n'), old_data['name']
+        except ObjectGone:
+            raise
         except Exception as e:
             return False, internal_server_error(errormsg=str(e)), None
 
@@ -699,6 +709,9 @@ class DomainConstraintView(PGChildNodeView):
 
         if not status:
             return False, internal_server_error(errormsg=res)
+        if len(res['rows']) == 0:
+            raise ObjectGone(
+                gettext("The specified domain could not be found."))
 
         return res['rows'][0]['schema'], res['rows'][0]['domain']
 

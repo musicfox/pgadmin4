@@ -23,10 +23,6 @@ from pgadmin.utils.ajax import make_json_response, internal_server_error, \
     make_response as ajax_response, gone
 from pgadmin.utils.driver import get_driver
 from config import PG_DEFAULT_DRIVER
-from pgadmin.utils import IS_PY2
-# If we are in Python3
-if not IS_PY2:
-    unicode = str
 
 
 class ForeignServerModule(CollectionNodeModule):
@@ -206,6 +202,11 @@ class ForeignServerView(PGChildNodeView):
                 kwargs['sid']
             )
             self.conn = self.manager.connection(did=kwargs['did'])
+            self.datlastsysoid = \
+                self.manager.db_info[kwargs['did']]['datlastsysoid'] \
+                if self.manager.db_info is not None and \
+                kwargs['did'] in self.manager.db_info else 0
+
             # Set the template path for the SQL scripts
             self.template_path = "foreign_servers/sql/#{0}#".format(
                 self.manager.version
@@ -290,7 +291,6 @@ class ForeignServerView(PGChildNodeView):
             fsid: Foreign server ID
         """
 
-        res = []
         sql = render_template("/".join([self.template_path, 'properties.sql']),
                               fsid=fsid, conn=self.conn)
         status, r_set = self.conn.execute_2darray(sql)
@@ -337,6 +337,9 @@ class ForeignServerView(PGChildNodeView):
             return gone(
                 gettext("Could not find the foreign server information.")
             )
+
+        res['rows'][0]['is_sys_obj'] = (
+            res['rows'][0]['fsrvid'] <= self.datlastsysoid)
 
         if res['rows'][0]['fsrvoptions'] is not None:
             res['rows'][0]['fsrvoptions'] = tokenize_options(
@@ -388,8 +391,8 @@ class ForeignServerView(PGChildNodeView):
                     status=410,
                     success=0,
                     errormsg=gettext(
-                        "Could not find the required parameter (%s)." % arg
-                    )
+                        "Could not find the required parameter ({})."
+                    ).format(arg)
                 )
         try:
             if 'fsrvacl' in data:
@@ -401,7 +404,10 @@ class ForeignServerView(PGChildNodeView):
             status, res1 = self.conn.execute_dict(sql)
             if not status:
                 return internal_server_error(errormsg=res1)
-
+            if len(res1['rows']) == 0:
+                return gone(
+                    gettext("The specified foreign server could not be found.")
+                )
             fdw_data = res1['rows'][0]
 
             is_valid_options = False
@@ -458,7 +464,7 @@ class ForeignServerView(PGChildNodeView):
         try:
             sql, name = self.get_sql(gid, sid, data, did, fid, fsid)
             # Most probably this is due to error
-            if not isinstance(sql, (str, unicode)):
+            if not isinstance(sql, str):
                 return sql
             sql = sql.strip('\n').strip(' ')
             status, res = self.conn.execute_scalar(sql)
@@ -571,7 +577,7 @@ class ForeignServerView(PGChildNodeView):
         try:
             sql, name = self.get_sql(gid, sid, data, did, fid, fsid)
             # Most probably this is due to error
-            if not isinstance(sql, (str, unicode)):
+            if not isinstance(sql, str):
                 return sql
             if sql == '':
                 sql = "--modified SQL"

@@ -10,14 +10,14 @@
 import os
 import sys
 
+if sys.version_info < (3, 4):
+    raise Exception('This application must be run under Python 3.4 or later.')
+
+import builtins
+
 root = os.path.dirname(os.path.realpath(__file__))
 if sys.path[0] != root:
     sys.path.insert(0, root)
-
-if sys.version_info[0] >= 3:
-    import builtins
-else:
-    import __builtin__ as builtins
 
 # Ensure the global server mode is set.
 builtins.SERVER_MODE = True

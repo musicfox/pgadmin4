@@ -63,12 +63,21 @@ let SchemaDiffSqlControl =
     },
     render: function() {
       let obj = Backform.SqlFieldControl.prototype.render.apply(this, arguments);
+
+      obj.sqlCtrl.setOption('readOnly', true);
       if(this.$el.find('.ddl-copy')) this.$el.find('.ddl-copy').on('click', this.copyData);
       return obj;
     },
     copyData() {
       event.stopPropagation();
       clipboard.copyTextToClipboard(this.model.get('diff_ddl'));
+      this.$el.find('.ddl-copy').text(gettext('Copied!'));
+      var self = this;
+      setTimeout(function() {
+        let $copy = self.$el.find('.ddl-copy');
+        if (!$copy.hasClass('d-none')) $copy.addClass('d-none');
+        $copy.text(gettext('Copy'));
+      }, 3000);
       return false;
     },
     onFocus: function() {
@@ -78,14 +87,6 @@ let SchemaDiffSqlControl =
       if ($copy.hasClass('d-none')) $copy.removeClass('d-none');
 
     },
-    onBlur: function() {
-      let $copy = this.$el.find('.ddl-copy');
-      if (!$(event.relatedTarget).hasClass('ddl-copy')) {
-        if (!$copy.hasClass('d-none')) $copy.addClass('d-none');
-        this.$el.find('.pgadmin-controls').first().removeClass('focused');
-      }
-    },
-
   });
 
 let SchemaDiffSelect2Control =
@@ -288,24 +289,25 @@ let SchemaDiffHeaderView = Backform.Form.extend({
   },
   template: _.template(`
     <div class="row pgadmin-control-group">
-      <div class="control-label">Select Source</div>
+      <div class="col-1 control-label">` + gettext('Select Source') + `</div>
       <div class="col-6 source row"></div>
     </div>
     <div class="row pgadmin-control-group">
-      <div class="control-label">Select Target</div>
+      <div class="col-1 control-label">` + gettext('Select Target') + `</div>
       <div class="col-6 target row"></div>
       <div class="col-5 target-buttons">
           <div class="action-btns d-flex">
               <button class="btn btn-primary mr-auto"><i class="icon-schema-diff-white"></i>&nbsp;` + gettext('Compare') + `</button>
               <button id="generate-script" class="btn btn-secondary mr-1" disabled><i class="fa fa-file-code-o sql-icon-lg"></i>&nbsp;` + gettext('Generate Script') + `</button>
               <div class="btn-group mr-1" role="group" aria-label="">
-                <button id="btn-filter" type="button" class="btn btn-sm btn-secondary"
+                <button id="btn-filter" type="button" class="btn btn-secondary"
                         title=""
                         accesskey=""
-                        tabindex="0">
+                        tabindex="0"
+                        style="pointer-events: none;">
                     <i class="fa fa-filter sql-icon-lg" aria-hidden="true"></i>&nbsp;` + gettext('Filter') + `
                 </button>
-                <button id="btn-filter-dropdown" type="button" class="btn btn-sm btn-secondary dropdown-toggle dropdown-toggle-split"
+                <button id="btn-filter-dropdown" type="button" class="btn btn-secondary dropdown-toggle dropdown-toggle-split"
                         data-toggle="dropdown" aria-haspopup="true" aria-expanded="false"
                         title=""
                         accesskey=""
@@ -315,7 +317,7 @@ let SchemaDiffHeaderView = Backform.Form.extend({
         '<ul class="dropdown-menu filter">',
         '<li>',
         '<a class="dropdown-item" id="btn-identical" href="#" tabindex="0">',
-        '<i class="identical fa fa-check" aria-hidden="true"></i>',
+        '<i class="identical fa fa-check visibility-hidden" aria-hidden="true"></i>',
         '<span> ' + gettext('Identical') + ' </span>',
         '</a>',
         '</li>',
@@ -419,9 +421,9 @@ let SchemaDiffFooterView = Backform.Form.extend({
   template: {
     'content': _.template(`
        <div class="pg-el-sm-12 row <%=contentClass%>">
-                  <div class="pg-el-sm-4 ddl-source">Source</div>
-                  <div class="pg-el-sm-4 ddl-target">Target</div>
-                  <div class="pg-el-sm-4 ddl-diff">Difference
+                  <div class="pg-el-sm-4 ddl-source">` + gettext('Source') + `</div>
+                  <div class="pg-el-sm-4 ddl-target">` + gettext('Target') + `</div>
+                  <div class="pg-el-sm-4 ddl-diff">` + gettext('Difference') + `
                   </div>
               </div>
       </div>

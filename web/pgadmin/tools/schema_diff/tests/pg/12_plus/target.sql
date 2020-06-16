@@ -415,3 +415,401 @@ CREATE PROCEDURE target.dodaj_klijenta(v_naziv character varying, v_oib characte
 
 
 ALTER PROCEDURE target.dodaj_klijenta(v_naziv character varying, v_oib character varying, v_pdv_id character varying, v_adresa character varying, v_mjesto integer, v_drzava character varying, v_tip_p_sub character varying, v_vlasnik character varying, v_pdv boolean, v_fisk boolean, v_iban character varying, v_k_osoba character varying, v_email character varying, v_br_tel character varying, v_radna_god numeric, v_schema character varying) OWNER TO postgres;
+
+-- Collation scripts
+CREATE COLLATION target.coll_tar
+    FROM pg_catalog."POSIX";
+
+ALTER COLLATION target.coll_tar
+    OWNER TO postgres;
+
+CREATE COLLATION target.coll_diff
+    (LC_COLLATE = 'C', LC_CTYPE = 'C');
+
+ALTER COLLATION target.coll_diff
+    OWNER TO postgres;
+
+-- FTS Configuration scripts
+CREATE TEXT SEARCH CONFIGURATION target.fts_con_tar (
+    COPY=german
+);
+
+ALTER TEXT SEARCH CONFIGURATION target.fts_con_tar OWNER TO postgres;
+
+CREATE TEXT SEARCH CONFIGURATION target.fts_con_diff (
+	PARSER = default
+);
+ALTER TEXT SEARCH CONFIGURATION target.fts_con_diff ADD MAPPING FOR asciiword WITH dutch_stem;
+ALTER TEXT SEARCH CONFIGURATION target.fts_con_diff ADD MAPPING FOR email WITH simple;
+ALTER TEXT SEARCH CONFIGURATION target.fts_con_diff ADD MAPPING FOR hword WITH german_stem;
+
+-- FTS Dictionary scripts
+CREATE TEXT SEARCH DICTIONARY target.fts_dict_tar (
+    TEMPLATE = simple,
+    stopwords = 'english'
+);
+
+CREATE TEXT SEARCH DICTIONARY target.fts_dict_diff (
+    TEMPLATE = simple,
+    stopwords = 'german'
+);
+
+COMMENT ON TEXT SEARCH DICTIONARY target.fts_dict_diff
+    IS 'Comment';
+
+-- FTS Parser scripts
+CREATE TEXT SEARCH PARSER target.fts_par_tar (
+    START = prsd_start,
+    GETTOKEN = prsd_nexttoken,
+    END = prsd_end,
+    LEXTYPES = prsd_lextype);
+
+CREATE TEXT SEARCH PARSER target.fts_par_diff (
+    START = int4_accum,
+    GETTOKEN = inet_gist_penalty,
+    END = btint2sortsupport,
+    LEXTYPES = dispell_init);
+
+COMMENT ON TEXT SEARCH PARSER target.fts_par_diff
+      IS 'Comment';
+
+-- FTS Template scripts
+CREATE TEXT SEARCH TEMPLATE target.fts_templ_tar (
+    INIT = dispell_init,
+    LEXIZE = dispell_lexize
+);
+
+CREATE TEXT SEARCH TEMPLATE target.fts_templ_diff (
+    INIT = dsimple_init,
+    LEXIZE = dsimple_lexize
+);
+
+COMMENT ON TEXT SEARCH TEMPLATE target.fts_templ_diff IS 'Comment';
+
+-- Domain and Domain Constraint script
+CREATE DOMAIN target.dom_src
+    AS bigint
+    DEFAULT 100
+    NOT NULL;
+
+ALTER DOMAIN target.dom_src OWNER TO postgres;
+
+ALTER DOMAIN target.dom_src
+    ADD CONSTRAINT con_src CHECK (VALUE <> 100);
+
+CREATE DOMAIN target.dom_cons_diff
+    AS bigint
+    DEFAULT 400;
+
+ALTER DOMAIN target.dom_cons_diff OWNER TO postgres;
+
+ALTER DOMAIN target.dom_cons_diff
+    ADD CONSTRAINT cons_diff_1 CHECK (VALUE <> 40);
+
+ALTER DOMAIN target.dom_cons_diff
+    ADD CONSTRAINT cons_tar_only CHECK (VALUE <> 25);
+
+CREATE DOMAIN target.dom_type_diff
+    AS numeric(8,4);
+
+ALTER DOMAIN target.dom_type_diff OWNER TO postgres;
+
+ALTER DOMAIN target.dom_type_diff
+    ADD CONSTRAINT cons1 CHECK (VALUE <> 45::numeric);
+
+ALTER DOMAIN target.dom_type_diff
+    ADD CONSTRAINT cons2 CHECK (VALUE <> 50::numeric);
+
+COMMENT ON DOMAIN target.dom_type_diff
+    IS 'Comment';
+
+-- Type Script composite type
+CREATE TYPE target.typ_comp_tar AS
+(
+	m1 bit(5),
+	m2 text COLLATE pg_catalog."POSIX"
+);
+ALTER TYPE target.typ_comp_tar
+    OWNER TO postgres;
+CREATE TYPE target.typ_comp_diff AS
+(
+	m1 bit(5),
+	m2 text COLLATE pg_catalog."POSIX"
+);
+ALTER TYPE target.typ_comp_diff
+    OWNER TO postgres;
+
+CREATE TYPE target.typ_comp_diff_no_column AS
+(
+	a "char",
+	b "char"
+);
+ALTER TYPE target.typ_comp_diff_no_column
+    OWNER TO postgres;
+
+-- Type Script ENUM type
+CREATE TYPE target.typ_enum_tar AS ENUM
+    ('test_enum');
+ALTER TYPE target.typ_enum_tar
+    OWNER TO postgres;
+
+CREATE TYPE target.typ_enum_diff AS ENUM
+    ('test_enum', 'test_enum_1');
+ALTER TYPE target.typ_enum_diff
+    OWNER TO postgres;
+
+-- Type Script RANGE type
+CREATE TYPE target.typ_range_tar AS RANGE
+(
+    SUBTYPE=text,
+    COLLATION = pg_catalog."POSIX",
+    SUBTYPE_OPCLASS = text_ops
+);
+ALTER TYPE target.typ_range_tar
+    OWNER TO postgres;
+
+CREATE TYPE target.typ_range_col_diff AS RANGE
+(
+    SUBTYPE=text,
+    COLLATION = pg_catalog."POSIX",
+    SUBTYPE_OPCLASS = text_ops
+);
+ALTER TYPE target.typ_range_col_diff
+    OWNER TO postgres;
+
+CREATE TYPE target.typ_range_subtype_diff AS RANGE
+(
+    SUBTYPE=bool,
+    SUBTYPE_OPCLASS = bool_ops
+);
+ALTER TYPE target.typ_range_subtype_diff
+    OWNER TO postgres;
+
+-- Type Script SHELL type
+CREATE TYPE target.typ_shell_tar;
+ALTER TYPE target.typ_shell_tar
+    OWNER TO postgres;
+
+CREATE TYPE target.typ_shell_diff;
+ALTER TYPE target.typ_shell_diff
+    OWNER TO pg_monitor;
+
+-- Type script to test when Type is different
+CREATE TYPE target.typ_comp_range_diff AS RANGE
+(
+    SUBTYPE=text,
+    COLLATION = pg_catalog."C",
+    SUBTYPE_OPCLASS = text_ops
+);
+ALTER TYPE target.typ_comp_range_diff
+    OWNER TO postgres;
+
+CREATE TYPE target.typ_comp_enum_diff AS ENUM
+    ('test_enum', 'test_enum_1');
+ALTER TYPE target.typ_comp_enum_diff
+    OWNER TO postgres;
+
+CREATE TYPE target.typ_range_comp_diff AS
+(
+	m1 bigint,
+	m2 text[] COLLATE pg_catalog."POSIX"
+);
+ALTER TYPE target.typ_range_comp_diff
+    OWNER TO postgres;
+
+CREATE TYPE target.typ_range_enum_diff AS ENUM
+    ('test_enum', 'test_enum_1');
+ALTER TYPE target.typ_range_enum_diff
+    OWNER TO postgres;
+
+CREATE TYPE target.typ_enum_comp_diff AS
+(
+	m1 bigint,
+	m2 text[] COLLATE pg_catalog."POSIX"
+);
+ALTER TYPE target.typ_enum_comp_diff
+    OWNER TO postgres;
+
+CREATE TYPE target.typ_enum_range_diff AS RANGE
+(
+    SUBTYPE=text,
+    COLLATION = pg_catalog."C",
+    SUBTYPE_OPCLASS = text_ops
+);
+ALTER TYPE target.typ_enum_range_diff
+    OWNER TO postgres;
+
+-- Sequences Script
+CREATE SEQUENCE target.seq_tar
+    CYCLE
+    INCREMENT 1
+    START 1
+    MINVALUE 1
+    MAXVALUE 3
+    CACHE 6;
+ALTER SEQUENCE target.seq_tar
+    OWNER TO postgres;
+
+CREATE SEQUENCE target.seq_diff_comment_acl
+    INCREMENT 1
+    START 1
+    MINVALUE 1
+    MAXVALUE 9223372036854775807
+    CACHE 1;
+
+ALTER SEQUENCE target.seq_diff_comment_acl
+    OWNER TO postgres;
+
+CREATE SEQUENCE target.seq_diff_comment_acl_remove
+    INCREMENT 1
+    START 1
+    MINVALUE 1
+    MAXVALUE 9223372036854775807
+    CACHE 1;
+ALTER SEQUENCE target.seq_diff_comment_acl_remove
+    OWNER TO postgres;
+COMMENT ON SEQUENCE target.seq_diff_comment_acl_remove
+    IS 'Test Comment';
+GRANT ALL ON SEQUENCE target.seq_diff_comment_acl_remove TO PUBLIC;
+GRANT ALL ON SEQUENCE target.seq_diff_comment_acl_remove TO postgres;
+
+CREATE SEQUENCE target.seq_diff
+    INCREMENT 5
+    START 3
+    MINVALUE 3
+    MAXVALUE 80
+    CACHE 1;
+
+ALTER SEQUENCE target.seq_diff
+    OWNER TO postgres;
+
+CREATE SEQUENCE target.seq_start_diff
+    INCREMENT 5
+    START 1
+    MINVALUE 1
+    MAXVALUE 20;
+ALTER SEQUENCE target.seq_start_diff
+    OWNER TO postgres;
+
+-- Foreign Data Wrapper to test foreign table
+CREATE FOREIGN DATA WRAPPER test_fdw_for_foreign_table;
+ALTER FOREIGN DATA WRAPPER test_fdw_for_foreign_table
+    OWNER TO postgres;
+
+-- Foreign Server to test foreign table
+CREATE SERVER test_fs_for_foreign_table
+    FOREIGN DATA WRAPPER test_fdw_for_foreign_table;
+ALTER SERVER test_fs_for_foreign_table
+    OWNER TO postgres;
+CREATE SERVER test_fs2_for_foreign_table
+    FOREIGN DATA WRAPPER test_fdw_for_foreign_table;
+ALTER SERVER test_fs2_for_foreign_table
+    OWNER TO postgres;
+
+-- Table to test inheritance in foreign table
+CREATE TABLE public.test_table_for_foreign_table
+(
+    tid bigint NOT NULL,
+    tname text COLLATE pg_catalog."default",
+    CONSTRAINT test_table_for_foreign_table_pkey PRIMARY KEY (tid)
+)
+WITH (
+    OIDS = FALSE
+)
+TABLESPACE pg_default;
+ALTER TABLE public.test_table_for_foreign_table
+    OWNER to postgres;
+
+CREATE FOREIGN TABLE target.ft_tar(
+    fid bigint NULL,
+    fname text NULL COLLATE pg_catalog."default"
+)
+    SERVER test_fs_for_foreign_table;
+ALTER FOREIGN TABLE target.ft_tar
+    OWNER TO postgres;
+ALTER FOREIGN TABLE target.ft_tar
+    ADD CONSTRAINT fcheck CHECK ((fid > 1000)) NO INHERIT;
+COMMENT ON FOREIGN TABLE target.ft_tar
+    IS 'Test Comment';
+GRANT INSERT ON TABLE target.ft_tar TO pg_monitor;
+GRANT ALL ON TABLE target.ft_tar TO postgres;
+
+CREATE FOREIGN TABLE target.ft_diff_col(
+    fid bigint NULL,
+    fname text NOT NULL COLLATE pg_catalog."default"
+)
+    SERVER test_fs_for_foreign_table;
+ALTER FOREIGN TABLE target.ft_diff_col
+    OWNER TO postgres;
+ALTER FOREIGN TABLE target.ft_diff_col
+    ADD CONSTRAINT fcheck CHECK ((fid > 1000)) NO INHERIT;
+COMMENT ON FOREIGN TABLE target.ft_diff_col
+    IS 'Comment';
+GRANT INSERT ON TABLE target.ft_diff_col TO pg_monitor;
+GRANT ALL ON TABLE target.ft_diff_col TO postgres;
+
+CREATE FOREIGN TABLE target.ft_diff_const(
+    fid bigint NULL,
+    fname text NULL COLLATE pg_catalog."default"
+)
+    SERVER test_fs_for_foreign_table;
+ALTER FOREIGN TABLE target.ft_diff_const
+    OWNER TO postgres;
+
+ALTER FOREIGN TABLE target.ft_diff_const
+    ADD CONSTRAINT fcheck CHECK ((fid > 1000)) NO INHERIT;
+ALTER FOREIGN TABLE target.ft_diff_const
+    ADD CONSTRAINT fcheck1 CHECK ((fid > 50)) NO INHERIT NOT VALID;
+ALTER FOREIGN TABLE target.ft_diff_const
+    ADD CONSTRAINT fcheck2 CHECK ((fid > 20)) NO INHERIT;
+ALTER FOREIGN TABLE target.ft_diff_const
+    ADD CONSTRAINT fcheck_tar CHECK ((fid > 50));
+
+GRANT INSERT ON TABLE target.ft_diff_const TO pg_monitor;
+GRANT ALL ON TABLE target.ft_diff_const TO postgres;
+
+CREATE FOREIGN TABLE target.ft_diff_opt(
+    fid bigint NULL,
+    fname text NULL COLLATE pg_catalog."default"
+)
+    SERVER test_fs_for_foreign_table
+    OPTIONS (opt1 'val1', opt2 'val30', opt_tar 'val_tar');
+
+ALTER FOREIGN TABLE target.ft_diff_opt
+    OWNER TO postgres;
+
+CREATE FOREIGN TABLE target.ft_diff_foreign_server(
+    fid bigint NULL,
+    fname text NULL COLLATE pg_catalog."default"
+)
+    SERVER test_fs2_for_foreign_table;
+ALTER FOREIGN TABLE target.ft_diff_foreign_server
+    OWNER TO postgres;
+
+CREATE FOREIGN TABLE target.ft_diff_foreign_server_1(
+    fid bigint NULL,
+    fcity text NULL COLLATE pg_catalog."default"
+)
+    SERVER test_fs2_for_foreign_table
+    OPTIONS (opt1 'val1', opt2 'val2');
+ALTER FOREIGN TABLE target.ft_diff_foreign_server_1
+    OWNER TO postgres;
+ALTER FOREIGN TABLE target.ft_diff_foreign_server_1
+    ADD CONSTRAINT cs2 CHECK ((fid > 200)) NO INHERIT;
+
+-- Test for RM #5350
+CREATE TABLE target.events_transactions
+(
+    event_code integer,
+    numerator integer,
+    account_token text COLLATE pg_catalog."default",
+    transaction_dt timestamp without time zone,
+    payment_method integer,
+    approval text COLLATE pg_catalog."default",
+    amount integer,
+    file_dt timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
+    file_name character varying(256) COLLATE pg_catalog."default",
+    payment_pin integer,
+    transfer_dt timestamp without time zone,
+    transaction_type integer
+);

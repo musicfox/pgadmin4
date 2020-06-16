@@ -1,4 +1,4 @@
--- FOREIGN TABLE: public."FT1_$%{}[]()&*^!@""'`\/#"
+-- FOREIGN TABLE: public.FT1_$%{}[]()&*^!@"'`\/#
 
 -- DROP FOREIGN TABLE public."FT1_$%{}[]()&*^!@""'`\/#";
 
@@ -16,6 +16,6 @@ ALTER FOREIGN TABLE public."FT1_$%{}[]()&*^!@""'`\/#"
 COMMENT ON FOREIGN TABLE public."FT1_$%{}[]()&*^!@""'`\/#"
     IS 'Test Comment';
 
-GRANT INSERT, SELECT ON TABLE public."FT1_$%{}[]()&*^!@""'`\/#" TO PUBLIC;
+GRANT SELECT ON TABLE public."FT1_$%{}[]()&*^!@""'`\/#" TO PUBLIC;
 
 GRANT ALL ON TABLE public."FT1_$%{}[]()&*^!@""'`\/#" TO enterprisedb;

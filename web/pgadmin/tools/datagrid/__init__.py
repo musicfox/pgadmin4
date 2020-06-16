@@ -8,7 +8,6 @@
 ##########################################################################
 
 """A blueprint module implementing the datagrid frame."""
-MODULE_NAME = 'datagrid'
 
 import simplejson as json
 import pickle
@@ -17,9 +16,10 @@ import random
 from threading import Lock
 from flask import Response, url_for, session, request, make_response
 from werkzeug.useragents import UserAgent
-from flask import current_app as app
+from flask import current_app as app, render_template
+from flask_babelex import gettext
 from flask_security import login_required
-from pgadmin.tools.sqleditor.command import *
+from pgadmin.tools.sqleditor.command import ObjectRegistry, SQLFilter
 from pgadmin.utils import PgAdminModule
 from pgadmin.utils.ajax import make_json_response, bad_request, \
     internal_server_error
@@ -31,7 +31,9 @@ from pgadmin.utils.exception import ConnectionLost, SSHTunnelConnectionLost
 from pgadmin.utils.preferences import Preferences
 from pgadmin.settings import get_setting
 from pgadmin.browser.utils import underscore_unescape
+from pgadmin.utils.exception import ObjectGone
 
+MODULE_NAME = 'datagrid'
 
 query_tool_close_session_lock = Lock()
 
@@ -153,7 +155,7 @@ def initialize_datagrid(trans_id, cmd_type, obj_type, sgid, sid, did, obj_id):
                                   auto_reconnect=False,
                                   use_binary_placeholder=True,
                                   array_to_string=True)
-    except (ConnectionLost, SSHTunnelConnectionLost) as e:
+    except (ConnectionLost, SSHTunnelConnectionLost):
         raise
     except Exception as e:
         app.logger.error(e)
@@ -179,6 +181,8 @@ def initialize_datagrid(trans_id, cmd_type, obj_type, sgid, sid, did, obj_id):
             did=did, obj_id=obj_id, cmd_type=cmd_type,
             sql_filter=filter_sql
         )
+    except ObjectGone:
+        raise
     except Exception as e:
         app.logger.error(e)
         return internal_server_error(errormsg=str(e))
@@ -386,15 +390,15 @@ def close(trans_id):
     Args:
         trans_id: unique transaction id
     """
-    if 'gridData' not in session:
-        return make_json_response(data={'status': True})
-
-    grid_data = session['gridData']
-    # Return from the function if transaction id not found
-    if str(trans_id) not in grid_data:
-        return make_json_response(data={'status': True})
-
     with query_tool_close_session_lock:
+        if 'gridData' not in session:
+            return make_json_response(data={'status': True})
+
+        grid_data = session['gridData']
+        # Return from the function if transaction id not found
+        if str(trans_id) not in grid_data:
+            return make_json_response(data={'status': True})
+
         try:
             close_query_tool_session(trans_id)
             # Remove the information of unique transaction id from the
@@ -433,6 +437,8 @@ def validate_filter(sid, did, obj_id):
 
         # Call validate_filter method to validate the SQL.
         status, res = sql_filter_obj.validate_filter(filter_sql)
+    except ObjectGone:
+        raise
     except Exception as e:
         app.logger.error(e)
         return internal_server_error(errormsg=str(e))
@@ -458,20 +464,20 @@ def close_query_tool_session(trans_id):
     :param trans_id: Transaction id
     :return:
     """
+    if 'gridData' in session and str(trans_id) in session['gridData']:
+        cmd_obj_str = session['gridData'][str(trans_id)]['command_obj']
+        # Use pickle.loads function to get the command object
+        cmd_obj = pickle.loads(cmd_obj_str)
 
-    cmd_obj_str = session['gridData'][str(trans_id)]['command_obj']
-    # Use pickle.loads function to get the command object
-    cmd_obj = pickle.loads(cmd_obj_str)
+        # if connection id is None then no need to release the connection
+        if cmd_obj.conn_id is not None:
+            manager = get_driver(
+                PG_DEFAULT_DRIVER).connection_manager(cmd_obj.sid)
+            if manager is not None:
+                conn = manager.connection(
+                    did=cmd_obj.did, conn_id=cmd_obj.conn_id)
 
-    # if connection id is None then no need to release the connection
-    if cmd_obj.conn_id is not None:
-        manager = get_driver(
-            PG_DEFAULT_DRIVER).connection_manager(cmd_obj.sid)
-        if manager is not None:
-            conn = manager.connection(
-                did=cmd_obj.did, conn_id=cmd_obj.conn_id)
-
-            # Release the connection
-            if conn.connected():
-                conn.cancel_transaction(cmd_obj.conn_id, cmd_obj.did)
-                manager.release(did=cmd_obj.did, conn_id=cmd_obj.conn_id)
+                # Release the connection
+                if conn.connected():
+                    conn.cancel_transaction(cmd_obj.conn_id, cmd_obj.did)
+                    manager.release(did=cmd_obj.did, conn_id=cmd_obj.conn_id)

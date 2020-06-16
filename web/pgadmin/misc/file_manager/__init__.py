@@ -98,9 +98,7 @@ def splitext(path):
 def is_folder_hidden(filepath):
     if _platform == "win32":
         try:
-            attrs = ctypes.windll.kernel32.GetFileAttributesW(
-                unicode(filepath) if sys.version_info[0] < 3 else filepath
-            )
+            attrs = ctypes.windll.kernel32.GetFileAttributesW(filepath)
             assert attrs != -1
             result = bool(attrs & 2)
         except (AttributeError, AssertionError):
@@ -365,28 +363,29 @@ class Filemanager(object):
             if 'supported_types' in params else []
         if fm_type == 'select_file':
             capabilities = ['select_file', 'rename', 'upload', 'create']
-            supp_types = supp_types
             files_only = True
             folders_only = False
-            title = "Select File"
+            title = gettext("Select File")
         elif fm_type == 'select_folder':
             capabilities = ['select_folder', 'rename', 'create']
             files_only = False
             folders_only = True
-            title = "Select Folder"
+            title = gettext("Select Folder")
         elif fm_type == 'create_file':
             capabilities = ['select_file', 'rename', 'create']
-            supp_types = supp_types
             files_only = True
             folders_only = False
-            title = "Create File"
+            title = gettext("Create File")
         elif fm_type == 'storage_dialog':
             capabilities = ['select_folder', 'select_file', 'download',
                             'rename', 'delete', 'upload', 'create']
-            supp_types = supp_types
             files_only = True
             folders_only = False
-            title = "Storage Manager"
+            title = gettext("Storage Manager")
+
+        # Using os.path.join to make sure we have trailing '/' or '\'
+        homedir = '/' if (config.SERVER_MODE) \
+            else os.path.join(os.path.expanduser('~'), '')
 
         # get last visited directory, if not present then traverse in reverse
         # order to find closest parent directory
@@ -402,6 +401,9 @@ class Filemanager(object):
                 check_dir_exists = True
             else:
                 last_dir = u"/"
+
+        if not config.SERVER_MODE and last_dir == u"/" or last_dir == "/":
+            last_dir = homedir
 
         if check_dir_exists:
             if len(last_dir) > 1 and \
@@ -431,6 +433,7 @@ class Filemanager(object):
         configs = {
             # for JS json compatibility
             "fileroot": last_dir.replace('\\', '\\\\'),
+            "homedir": homedir.replace('\\', '\\\\'),
             "dialog_type": fm_type,
             "title": title,
             "upload": {
@@ -564,7 +567,7 @@ class Filemanager(object):
             Filemanager.check_access_permission(dir, path)
         except Exception as e:
             Filemanager.resume_windows_warning()
-            err_msg = u"Error: {0}".format(e)
+            err_msg = gettext(u"Error: {0}").format(e)
             files = {
                 'Code': 0,
                 'Error': err_msg
@@ -604,7 +607,7 @@ class Filemanager(object):
             Filemanager.resume_windows_warning()
             return {
                 'Code': 0,
-                'Error': gettext(u"'{0}' file does not exist.".format(path))
+                'Error': gettext(u"'{0}' file does not exist.").format(path)
             }
 
         user_dir = path
@@ -645,11 +648,11 @@ class Filemanager(object):
                     user_path = u"{0}/".format(user_path)
                 else:
                     # filter files based on file_type
-                    if file_type is not None and file_type != "*":
-                        if folders_only or len(supported_types) > 0 and \
-                                file_extension not in supported_types or \
-                                file_type != file_extension:
-                            continue
+                    if file_type is not None and file_type != "*" and \
+                        (folders_only or len(supported_types) > 0 and
+                         file_extension not in supported_types or
+                            file_type != file_extension):
+                        continue
 
                 # create a list of files and folders
                 files[f] = {
@@ -667,9 +670,9 @@ class Filemanager(object):
             Filemanager.resume_windows_warning()
             if (hasattr(e, 'strerror') and
                     e.strerror == gettext('Permission denied')):
-                err_msg = u"Error: {0}".format(e.strerror)
+                err_msg = gettext(u"Error: {0}").format(e.strerror)
             else:
-                err_msg = u"Error: {0}".format(e)
+                err_msg = gettext(u"Error: {0}").format(e)
             files = {
                 'Code': 0,
                 'Error': err_msg
@@ -702,7 +705,7 @@ class Filemanager(object):
         # Do not allow user to access outside his storage dir in server mode.
         if not orig_path.startswith(dir):
             raise Exception(
-                gettext(u"Access denied ({0})".format(path)))
+                gettext(u"Access denied ({0})").format(path))
         return True
 
     @staticmethod
@@ -762,7 +765,7 @@ class Filemanager(object):
                 'Filename': split_path(path)[-1],
                 'FileType': '',
                 'Path': path,
-                'Error': gettext(u"Error: {0}".format(e)),
+                'Error': gettext(u"Error: {0}").format(e),
                 'Code': 0,
                 'Info': '',
                 'Properties': {
@@ -794,8 +797,7 @@ class Filemanager(object):
 
         if not path_exists(orig_path):
             thefile['Error'] = gettext(
-                u"'{0}' file does not exist.".format(path)
-            )
+                u"'{0}' file does not exist.").format(path)
             thefile['Code'] = -1
             return thefile
 
@@ -847,7 +849,7 @@ class Filemanager(object):
             Filemanager.check_access_permission(dir, new)
         except Exception as e:
             res = {
-                'Error': gettext(u"Error: {0}".format(e)),
+                'Error': gettext(u"Error: {0}").format(e),
                 'Code': 0
             }
             return res
@@ -914,7 +916,7 @@ class Filemanager(object):
             Filemanager.check_access_permission(dir, path)
         except Exception as e:
             res = {
-                'Error': gettext(u"Error: {0}".format(e)),
+                'Error': gettext(u"Error: {0}").format(e),
                 'Code': 0
             }
             return res
@@ -928,7 +930,7 @@ class Filemanager(object):
                 os.remove(orig_path)
         except Exception as e:
             code = 0
-            err_msg = u"Error: {0}".format(e.strerror)
+            err_msg = gettext(u"Error: {0}").format(e.strerror)
 
         result = {
             'Path': path,
@@ -972,14 +974,14 @@ class Filemanager(object):
                     f.write(data)
         except Exception as e:
             code = 0
-            err_msg = u"Error: {0}".format(
-                e.strerror if hasattr(e, 'strerror') else u'Unknown')
+            err_msg = gettext(u"Error: {0}").format(
+                e.strerror if hasattr(e, 'strerror') else gettext(u'Unknown'))
 
         try:
             Filemanager.check_access_permission(dir, path)
         except Exception as e:
             res = {
-                'Error': gettext(u"Error: {0}".format(e)),
+                'Error': gettext(u"Error: {0}").format(e),
                 'Code': 0
             }
             return res
@@ -1016,9 +1018,9 @@ class Filemanager(object):
         except Exception as e:
             code = 0
             if hasattr(e, 'strerror'):
-                err_msg = u"Error: {0}".format(e.strerror)
+                err_msg = gettext(u"Error: {0}").format(e.strerror)
             else:
-                err_msg = u"Error: {0}".format(e)
+                err_msg = gettext(u"Error: {0}").format(e)
 
         result = {
             'Path': path,
@@ -1093,21 +1095,24 @@ class Filemanager(object):
                     is_startswith_bom = True
                     enc = encoding
 
-            # Check if string is binary
-            is_binary = is_binary_string(file_data)
+            # No need to check for binary file, a BOM marker already
+            # indicates that text stream afterwards
+            if not is_startswith_bom:
+                # Check if string is binary
+                is_binary = is_binary_string(file_data)
 
         except IOError as ex:
             status = False
             # we don't want to expose real path of file
             # so only show error message.
             if ex.strerror == 'Permission denied':
-                err_msg = u"Error: {0}".format(ex.strerror)
+                err_msg = gettext(u"Error: {0}").format(ex.strerror)
             else:
-                err_msg = u"Error: {0}".format(str(ex))
+                err_msg = gettext(u"Error: {0}").format(str(ex))
 
         except Exception as ex:
             status = False
-            err_msg = u"Error: {0}".format(str(ex))
+            err_msg = gettext(u"Error: {0}").format(str(ex))
 
         # Remove root storage path from error message
         # when running in Server mode
@@ -1135,7 +1140,7 @@ class Filemanager(object):
                 path, name))
         except Exception as e:
             res = {
-                'Error': gettext(u"Error: {0}".format(e)),
+                'Error': gettext(u"Error: {0}").format(e),
                 'Code': 0
             }
             return res
@@ -1153,14 +1158,14 @@ class Filemanager(object):
                 os.mkdir(newPath)
             except Exception as e:
                 code = 0
-                err_msg = u"Error: {0}".format(e.strerror)
+                err_msg = gettext(u"Error: {0}").format(e.strerror)
         else:
             newPath, newName = self.getNewName(dir, path, name)
             try:
                 os.mkdir(newPath)
             except Exception as e:
                 code = 0
-                err_msg = u"Error: {0}".format(e.strerror)
+                err_msg = gettext(u"Error: {0}").format(e.strerror)
 
         result = {
             'Parent': path,
@@ -1194,7 +1199,7 @@ class Filemanager(object):
                 dir, u"{}{}".format(path, path)
             )
         except Exception as e:
-            resp = Response(gettext(u"Error: {0}".format(e)))
+            resp = Response(gettext(u"Error: {0}").format(e))
             resp.headers['Content-Disposition'] = \
                 'attachment; filename=' + name
             return resp
@@ -1211,7 +1216,7 @@ class Filemanager(object):
         try:
             Filemanager.check_access_permission(dir, path)
         except Exception as e:
-            err_msg = u"Error: {0}".format(e)
+            err_msg = gettext(u"Error: {0}").format(e)
             res['Code'] = 0
             res['Error'] = err_msg
         return res

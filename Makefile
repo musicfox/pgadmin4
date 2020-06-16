@@ -28,7 +28,12 @@ install-node:
 	cd web && npm audit fix
 	rm -f web/yarn.lock
 	cd web && yarn import
-	cd web && yarn audit
+# Commented the below line to avoid vulnerability in decompress package and
+# audit only dependencies folder. Refer https://www.npmjs.com/advisories/1217.
+# Pull request is already been send https://github.com/kevva/decompress/pull/73,
+# once fixed we will uncomment it.
+#	cd web && yarn audit
+	cd web && yarn audit --groups dependencies
 	rm -f package-lock.json
 	rm -f web/package-lock.json
 
@@ -48,7 +53,12 @@ check-audit:
 	cd web && yarn run audit
 
 check-auditjs:
-	cd web && yarn run auditjs
+# Commented the below line to avoid vulnerability in decompress package and
+# audit only dependencies folder. Refer https://www.npmjs.com/advisories/1217.
+# Pull request is already been send https://github.com/kevva/decompress/pull/73,
+# once fixed we will uncomment it.
+#	cd web && yarn run auditjs
+	cd web && yarn run auditjs --groups dependencies
 
 check-auditjs-html:
 	cd web && yarn run auditjs-html
@@ -81,7 +91,7 @@ runtime:
 	cd runtime && qmake CONFIG+=release && make
 
 # Include all clean sub-targets in clean
-clean: clean-appbundle clean-dist clean-docs clean-node clean-pip clean-src clean-runtime
+clean: clean-appbundle clean-debian clean-dist clean-docs clean-node clean-pip clean-redhat clean-src clean-runtime
 	rm -rf web/pgadmin/static/js/generated/*
 	rm -rf web/pgadmin/static/js/generated/.cache
 	rm -rf web/pgadmin/static/css/generated/*
@@ -93,6 +103,9 @@ clean-runtime:
 
 clean-appbundle:
 	rm -rf mac-build/
+
+clean-debian:
+	rm -rf debian-build/
 
 clean-dist:
 	rm -rf dist/
@@ -106,8 +119,14 @@ clean-node:
 clean-pip:
 	rm -rf pip-build/
 
+clean-redhat:
+	rm -rf redhat-build/
+
 clean-src:
 	rm -rf src-build/
+
+debian:
+	./pkg/debian/build.sh
 
 docker:
 	echo $(APP_NAME)
@@ -137,6 +156,9 @@ msg-update:
 
 pip: docs
 	./pkg/pip/build.sh
+
+redhat:
+	./pkg/redhat/build.sh
 
 src:
 	./pkg/src/build.sh

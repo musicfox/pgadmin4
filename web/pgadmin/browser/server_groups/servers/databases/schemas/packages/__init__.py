@@ -22,17 +22,12 @@ from pgadmin.browser.server_groups.servers.databases.schemas.utils \
 from pgadmin.browser.server_groups.servers.utils import parse_priv_from_db, \
     parse_priv_to_db
 from pgadmin.browser.utils import PGChildNodeView
-from pgadmin.utils import IS_PY2
 from pgadmin.utils.ajax import make_json_response, \
     make_response as ajax_response, internal_server_error, \
     precondition_required, gone
 from pgadmin.utils.driver import get_driver
 from pgadmin.tools.schema_diff.node_registry import SchemaDiffRegistry
 from pgadmin.tools.schema_diff.compare import SchemaDiffObjectCompare
-
-# If we are in Python3
-if not IS_PY2:
-    unicode = str
 
 
 class PackageModule(SchemaChildModule):
@@ -113,7 +108,7 @@ class PackageView(PGChildNodeView, SchemaDiffObjectCompare):
         'dependent': [{'get': 'dependents'}]
     })
 
-    keys_to_ignore = ['oid', 'schema', 'xmin']
+    keys_to_ignore = ['oid', 'schema', 'xmin', 'oid-2', 'acl']
 
     def check_precondition(action=None):
         """
@@ -259,6 +254,7 @@ class PackageView(PGChildNodeView, SchemaDiffObjectCompare):
         Returns:
 
         """
+        res = []
         SQL = render_template(
             "/".join([self.template_path, 'properties.sql']),
             scid=scid, pkgid=pkgid
@@ -266,7 +262,7 @@ class PackageView(PGChildNodeView, SchemaDiffObjectCompare):
         status, rset = self.conn.execute_dict(SQL)
 
         if not status:
-            return internal_server_error(errormsg=res)
+            return internal_server_error(errormsg=rset)
 
         if len(rset['rows']) == 0:
             return gone(
@@ -347,6 +343,8 @@ class PackageView(PGChildNodeView, SchemaDiffObjectCompare):
             priv = parse_priv_from_db(row)
             res['rows'][0].setdefault(row['deftype'], []).append(priv)
 
+        res['rows'][0]['schema'] = self.schema
+
         return True, res['rows'][0]
 
     @check_precondition(action="create")
@@ -378,8 +376,8 @@ class PackageView(PGChildNodeView, SchemaDiffObjectCompare):
                     status=400,
                     success=0,
                     errormsg=_(
-                        "Could not find the required parameter (%s)." % arg
-                    )
+                        "Could not find the required parameter ({})."
+                    ).format(arg)
                 )
         data['schema'] = self.schema
 
@@ -423,6 +421,7 @@ class PackageView(PGChildNodeView, SchemaDiffObjectCompare):
           did: Database ID
           scid: Schema ID
           pkgid: Package ID
+          only_sql: Return SQL only if True
 
         Returns:
 
@@ -506,7 +505,7 @@ class PackageView(PGChildNodeView, SchemaDiffObjectCompare):
 
         SQL, name = self.getSQL(gid, sid, did, data, scid, pkgid)
         # Most probably this is due to error
-        if not isinstance(SQL, (str, unicode)):
+        if not isinstance(SQL, str):
             return SQL
 
         SQL = SQL.strip('\n').strip(' ')
@@ -555,13 +554,13 @@ class PackageView(PGChildNodeView, SchemaDiffObjectCompare):
                         status=400,
                         success=0,
                         errormsg=_(
-                            "Could not find the required parameter (%s)." % arg
-                        )
+                            "Could not find the required parameter ({})."
+                        ).format(arg)
                     )
 
         SQL, name = self.getSQL(gid, sid, did, data, scid, pkgid)
         # Most probably this is due to error
-        if not isinstance(SQL, (str, unicode)):
+        if not isinstance(SQL, str):
             return SQL
 
         SQL = SQL.strip('\n').strip(' ')
@@ -583,14 +582,20 @@ class PackageView(PGChildNodeView, SchemaDiffObjectCompare):
             did: Database ID
             scid: Schema ID
             pkgid: Package ID
+            sqltab: True
+            diff_schema: Target Schema
         """
 
         required_args = [
             u'name'
         ]
 
-        if pkgid is not None and not sqltab:
+        if diff_schema:
+            data['schema'] = diff_schema
+        else:
             data['schema'] = self.schema
+
+        if pkgid is not None and not sqltab:
             SQL = render_template(
                 "/".join([self.template_path, 'properties.sql']), scid=scid,
                 pkgid=pkgid)
@@ -642,11 +647,9 @@ class PackageView(PGChildNodeView, SchemaDiffObjectCompare):
                 if arg not in data:
                     data[arg] = old_data[arg]
 
-            if diff_schema:
-                data['schema'] = diff_schema
-
             SQL = render_template("/".join([self.template_path, 'update.sql']),
-                                  data=data, o_data=old_data, conn=self.conn)
+                                  data=data, o_data=old_data, conn=self.conn,
+                                  is_schema_diff=diff_schema)
             return SQL, data['name'] if 'name' in data else old_data['name']
         else:
             # To format privileges coming from client
@@ -706,7 +709,7 @@ class PackageView(PGChildNodeView, SchemaDiffObjectCompare):
             sql, name = self.getSQL(gid, sid, did, result, scid, pkgid, True,
                                     diff_schema)
             # Most probably this is due to error
-            if not isinstance(sql, (str, unicode)):
+            if not isinstance(sql, str):
                 return sql
 
             sql = sql.strip('\n').strip(' ')
@@ -715,9 +718,8 @@ class PackageView(PGChildNodeView, SchemaDiffObjectCompare):
             if not json_resp:
                 return sql
 
-            sql_header = u"-- Package: {}\n\n-- ".format(
-                self.qtIdent(self.conn, self.schema, result['name'])
-            )
+            sql_header = u"-- Package: {0}.{1}\n\n-- ".format(
+                self.schema, result['name'])
 
             sql_header += render_template(
                 "/".join([self.template_path, 'delete.sql']),
@@ -775,7 +777,7 @@ class PackageView(PGChildNodeView, SchemaDiffObjectCompare):
         if sql is None:
             return None
         start = 0
-        start_position = re.search("\s+[is|as]+\s+", sql, flags=re.I)
+        start_position = re.search("\\s+[is|as]+\\s+", sql, flags=re.I)
 
         if start_position:
             start = start_position.start() + 4
@@ -818,16 +820,27 @@ class PackageView(PGChildNodeView, SchemaDiffObjectCompare):
 
     def get_sql_from_diff(self, gid, sid, did, scid, oid, data=None,
                           diff_schema=None, drop_sql=False):
+        """
+        This function is used to get the DDL/DML statements.
+        :param gid: Group ID
+        :param sid: Serve ID
+        :param did: Database ID
+        :param scid: Schema ID
+        :param oid: Package ID
+        :param data: Difference data
+        :param diff_schema: Target Schema
+        :param drop_sql: True if need to drop the domains
+        :return:
+        """
         sql = ''
         if data:
             if diff_schema:
                 data['schema'] = diff_schema
-            status, sql = self.getSQL(gid, sid, did, data, scid, oid)
+            sql, name = self.getSQL(gid, sid, did, data, scid, oid)
         else:
             if drop_sql:
                 sql = self.delete(gid=gid, sid=sid, did=did,
                                   scid=scid, pkgid=oid, only_sql=True)
-
             elif diff_schema:
                 sql = self.sql(gid=gid, sid=sid, did=did, scid=scid, pkgid=oid,
                                diff_schema=diff_schema, json_resp=False)

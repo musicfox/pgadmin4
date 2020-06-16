@@ -27,12 +27,7 @@ from pgadmin.browser.server_groups.servers.databases.schemas.tables.\
     columns import utils as column_utils
 from pgadmin.utils.driver import get_driver
 from config import PG_DEFAULT_DRIVER
-from pgadmin.utils import IS_PY2
 from pgadmin.utils.ajax import ColParamsJSONDecoder
-
-# If we are in Python3
-if not IS_PY2:
-    unicode = str
 
 
 class ColumnsModule(CollectionNodeModule):
@@ -282,7 +277,6 @@ class ColumnsView(PGChildNodeView, DataTypeReader):
         status, rset = self.conn.execute_2darray(SQL)
         if not status:
             return internal_server_error(errormsg=rset)
-
         if clid is not None:
             if len(rset['rows']) == 0:
                 return gone(
@@ -392,9 +386,8 @@ class ColumnsView(PGChildNodeView, DataTypeReader):
                     status=410,
                     success=0,
                     errormsg=gettext(
-                        "Could not find the required parameter (%s)." %
-                        required_args[arg]
-                    )
+                        "Could not find the required parameter ({})."
+                    ).format(required_args[arg])
                 )
 
         # Parse privilege data coming from client according to database format
@@ -404,6 +397,8 @@ class ColumnsView(PGChildNodeView, DataTypeReader):
         # Adding parent into data dict, will be using it while creating sql
         data['schema'] = self.schema
         data['table'] = self.table
+        if len(data['table']) == 0:
+            return gone(gettext("The specified table could not be found."))
 
         # check type for '[]' in it
         data['cltype'], data['hasSqrBracket'] = \
@@ -531,7 +526,7 @@ class ColumnsView(PGChildNodeView, DataTypeReader):
                 column_utils.type_formatter(data['cltype'])
 
         SQL, name = self.get_sql(scid, tid, clid, data)
-        if not isinstance(SQL, (str, unicode)):
+        if not isinstance(SQL, str):
             return SQL
         SQL = SQL.strip('\n').strip(' ')
         status, res = self.conn.execute_scalar(SQL)
@@ -575,7 +570,7 @@ class ColumnsView(PGChildNodeView, DataTypeReader):
 
         try:
             SQL, name = self.get_sql(scid, tid, clid, data)
-            if not isinstance(SQL, (str, unicode)):
+            if not isinstance(SQL, str):
                 return SQL
 
             SQL = SQL.strip('\n').strip(' ')
@@ -724,7 +719,7 @@ class ColumnsView(PGChildNodeView, DataTypeReader):
                                                  data, [])
 
             SQL, name = self.get_sql(scid, tid, None, data, is_sql=True)
-            if not isinstance(SQL, (str, unicode)):
+            if not isinstance(SQL, str):
                 return SQL
 
             sql_header = u"-- Column: {0}\n\n-- ".format(

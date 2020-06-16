@@ -490,44 +490,44 @@ define('pgadmin.misc.explain', [
 
     if ('Join Filter' in _planData) {
       node_extra_info.push(
-        '<b>Join Filter</b>: ' + _.escape(_planData['Join Filter'])
+        '<strong>' + gettext('Join Filter') + '</strong>: ' + _.escape(_planData['Join Filter'])
       );
     }
 
     if ('Filter' in _planData) {
-      node_extra_info.push('<b>Filter</b>: ' + _.escape(_planData['Filter']));
+      node_extra_info.push('<strong>' + gettext('Filter') + '</strong>: ' + _.escape(_planData['Filter']));
     }
 
     if ('Index Cond' in _planData) {
-      node_extra_info.push('<b>Index Cond</b>: ' + _.escape(_planData['Index Cond']));
+      node_extra_info.push('<strong>' + gettext('Index Cond') + '</strong>: ' + _.escape(_planData['Index Cond']));
     }
 
     if ('Hash Cond' in _planData) {
-      node_extra_info.push('<b>Hash Cond</b>: ' + _.escape(_planData['Hash Cond']));
+      node_extra_info.push('<strong>' + gettext('Hash Cond') + '</strong>: ' + _.escape(_planData['Hash Cond']));
     }
 
     if ('Rows Removed by Filter' in _planData) {
       node_extra_info.push(
-        '<b>Rows Removed by Filter</b>: ' +
+        '<strong>' + gettext('Rows Removed by Filter') + '</strong>: ' +
           _.escape(_planData['Rows Removed by Filter'])
       );
     }
 
     if ('Peak Memory Usage' in _planData) {
       var buffer = [
-        '<b>Buckets</b>:', _.escape(_planData['Hash Buckets']),
-        '<b>Batches</b>:', _.escape(_planData['Hash Batches']),
-        '<b>Memory Usage</b>:', _.escape(_planData['Peak Memory Usage']), 'kB',
+        '<strong>' + gettext('Buckets') + '</strong>:', _.escape(_planData['Hash Buckets']),
+        '<strong>' + gettext('Batches') + '</strong>:', _.escape(_planData['Hash Batches']),
+        '<strong>' + gettext('Memory Usage') + '</strong>:', _.escape(_planData['Peak Memory Usage']), 'kB',
       ].join(' ');
       node_extra_info.push(buffer);
     }
 
     if ('Recheck Cond' in _planData) {
-      node_extra_info.push('<b>Recheck Cond</b>: ' + _planData['Recheck Cond']);
+      node_extra_info.push('<strong>' + gettext('Recheck Cond') + '</strong>: ' + _planData['Recheck Cond']);
     }
 
     if ('Exact Heap Blocks' in _planData) {
-      node_extra_info.push('<b>Heap Blocks</b>: exact=' + _planData['Exact Heap Blocks']);
+      node_extra_info.push('<strong>' + gettext('Heap Blocks') + '</strong>: exact=' + _planData['Exact Heap Blocks']);
     }
 
     info.rows.push(_explainRowTemplate({
@@ -993,6 +993,9 @@ define('pgadmin.misc.explain', [
 
         toolTipX = toolTipX < 0 ? 0 : (toolTipX);
         toolTipY = toolTipY < 0 ? 0 : (toolTipY);
+
+        toolTipX = toolTipX > graphContainer.width() - toolTipContainer[0].clientWidth ? toolTipX - (toolTipContainer[0].clientWidth+(pWIDTH* zoomFactor)) : toolTipX;
+        toolTipY = toolTipY > graphContainer.height() - toolTipContainer[0].clientHeight ? graphContainer.height() - toolTipContainer[0].clientHeight : toolTipY;
 
         // Show toolTip at respective x,y coordinates
         toolTipContainer.css({

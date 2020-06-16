@@ -98,12 +98,7 @@ define('pgadmin.node.procedure', [
         ),
         canVarAdd: function() {
           var server = this.node_info.server;
-          if (server.version < 90500) {
-            return false;
-          }
-          else {
-            return true;
-          }
+          return !(server.version < 90500);
         },
         isVisible: function() {
           if (this.name == 'sysfunc') { return false; }
@@ -124,32 +119,28 @@ define('pgadmin.node.procedure', [
               m.get('lanname') != 'edbspl') {
 
               setTimeout(function() {
-                m.set('provolatile', undefined);
-                m.set('proisstrict', undefined);
-                m.set('procost', undefined);
-                m.set('proleakproof', undefined);
+                m.set('provolatile', null);
+                m.set('proisstrict', false);
+                m.set('procost', null);
+                m.set('proleakproof', false);
               }, 10);
               return true;
             }
             else{
               return false;
             }
-
           case 'variables':
           case 'prosecdef':
             return this.node_info.server.version < 90500;
           case 'prorows':
             var server = this.node_info.server;
             return !(server.version >= 90500 && m.get('proretset') == true);
-          case 'funcowner':
-          case 'proargs':
-            return true;
           case 'proparallel':
             if (this.node_info.server.version < 90600 ||
               this.node_info.server.server_type != 'ppas' ||
               m.get('lanname') != 'edbspl') {
               setTimeout(function() {
-                m.set('proparallel', undefined);
+                m.set('proparallel', null);
               }, 10);
               return true;
             }
@@ -170,7 +161,7 @@ define('pgadmin.node.procedure', [
 
           if (_.isUndefined(this.get('name')) || String(this.get('name')).replace(/^\s+|\s+$/g, '') == '') {
             err['name'] = gettext('Name cannot be empty.');
-            errmsg = errmsg || err['name'];
+            errmsg = err['name'];
           }
 
           if (_.isUndefined(this.get('pronamespace')) || String(this.get('pronamespace')).replace(/^\s+|\s+$/g, '') == '') {

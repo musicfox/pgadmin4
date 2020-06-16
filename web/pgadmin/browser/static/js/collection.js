@@ -51,13 +51,21 @@ define([
         }]);
 
         // show query tool only in context menu of supported nodes.
-        if (pgAdmin.DataGrid && pgAdmin.unsupported_nodes) {
-          if (_.indexOf(pgAdmin.unsupported_nodes, this.type) == -1) {
+        if (pgAdmin.unsupported_nodes && _.indexOf(pgAdmin.unsupported_nodes, this.type) == -1) {
+          if ((this.type == 'database' && this.allowConn) || this.type != 'database') {
             pgAdmin.Browser.add_menus([{
               name: 'show_query_tool', node: this.type, module: this,
               applies: ['context'], callback: 'show_query_tool',
               priority: 998, label: gettext('Query Tool...'),
               icon: 'pg-font-icon icon-query-tool',
+            }]);
+
+            // show search objects same as query tool
+            pgAdmin.Browser.add_menus([{
+              name: 'search_objects', node: this.type, module: this,
+              applies: ['context'], callback: 'show_search_objects',
+              priority: 997, label: gettext('Search Objects...'),
+              icon: 'fa fa-search',
             }]);
           }
         }
@@ -99,7 +107,7 @@ define([
                   '<button tabindex="0" type="<%= type %>" ',
                   'class="btn <%=extraClasses.join(\' \')%>"',
                   '<% if (disabled) { %> disabled="disabled"<% } %> title="<%-tooltip%>">',
-                  '<span class="<%= icon %>" role="img"></span><% if (label != "") { %>&nbsp;<%-label%><% } %></button>',
+                  '<span class="<%= icon %>" role="img"></span><% if (label != "") { %>&nbsp;<%-label%><% } %><span class="sr-only"><%-tooltip%></span></button>',
                 ].join(' '));
               if (location == 'header') {
                 btnGroup.appendTo(that.header);
@@ -162,13 +170,18 @@ define([
               },
               render: function() {
                 let model = this.model.toJSON();
-
                 // canDrop can be set to false for individual row from the server side to disable the checkbox
-                if ('canDrop' in model && model.canDrop === false)
-                  this.$el.empty().append('<input tabindex="-1" type="checkbox" disabled="disabled"/>');
-                else
-                  this.$el.empty().append('<input tabindex="-1" type="checkbox" />');
+                let disabled = ('canDrop' in model && model.canDrop === false);
+                let id = `row-${_.uniqueId(model.oid || model.name)}`;
 
+                this.$el.empty().append(`
+                  <div class="custom-control custom-checkbox custom-checkbox-no-label">
+                    <input tabindex="-1" type="checkbox" class="custom-control-input" id="${id}" ${disabled?'disabled':''}/>
+                    <label class="custom-control-label" for="${id}">
+                      <span class="sr-only">` + gettext('Select') + `<span>
+                    </label>
+                  </div>
+                `);
                 this.delegateEvents();
                 return this;
               },
@@ -178,7 +191,7 @@ define([
         }
         // Initialize a new Grid instance
         that.grid = new Backgrid.Grid({
-          emptyText: 'No data found',
+          emptyText: gettext('No data found'),
           columns: gridSchema.columns,
           collection: that.collection,
           className: 'backgrid table presentation table-bordered table-noouter-border table-hover',
@@ -216,7 +229,7 @@ define([
         j.empty();
         j.data('obj-view', gridView);
 
-        $msgContainer = '<div class="alert alert-info pg-panel-message pg-panel-properties-message">' +
+        $msgContainer = '<div role="status" class="pg-panel-message pg-panel-properties-message">' +
          gettext('Retrieving data from the server...') + '</div>';
 
         $msgContainer = $($msgContainer).appendTo(j);
@@ -299,6 +312,9 @@ define([
               $('.pg-prop-content').on('scroll', that.__loadMoreRows.bind(that));
 
               that.collection.reset(that.data.splice(0, 50));
+
+              // Listen to select all checkbox event
+              that.collection.on('backgrid:select-all', that.__loadAllRows.bind(that));
             } else {
             // Do not listen the scroll event
               $('.pg-prop-content').off('scroll', that.__loadMoreRows);
@@ -336,12 +352,18 @@ define([
             sel_rows = [],
             item = pgBrowser.tree.selected(),
             d = item ? pgBrowser.tree.itemData(item) : null,
-            node = pgBrowser.Nodes[d._type],
+            node = d && pgBrowser.Nodes[d._type],
             url = undefined,
             msg = undefined,
             title = undefined;
 
-          _.each(sel_row_models, function(r){ sel_rows.push(r.id); });
+          if (node.type && node.type == 'coll-constraints') {
+            // In order to identify the constraint type, the type should be passed to the server
+            sel_rows = sel_row_models.map(row => ({id: row.get('oid'), _type: row.get('_type')}));
+          }
+          else {
+            sel_rows = sel_row_models.map(row => row.id);
+          }
 
           if (sel_rows.length === 0) {
             Alertify.alert(gettext('Drop Multiple'),
@@ -417,6 +439,14 @@ define([
           }
         }
       },
+      __loadAllRows: function(tmp, checked) {
+        if (this.data.length > 0) {
+          this.collection.add(this.data);
+          this.collection.each(function (model) {
+            model.trigger('backgrid:select', model, checked);
+          });
+        }
+      },
       generate_url: function(item, type) {
         /*
          * Using list, and collection functions of a node to get the nodes
@@ -437,6 +467,16 @@ define([
           pgAdmin.Browser.URL, treeInfo, actionType, self.node,
           collectionPickFunction
         );
+      },
+      show_query_tool: function() {
+        if(pgAdmin.DataGrid) {
+          pgAdmin.DataGrid.show_query_tool('', pgAdmin.Browser.tree.selected());
+        }
+      },
+      show_search_objects: function() {
+        if(pgAdmin.SearchObjects) {
+          pgAdmin.SearchObjects.show_search_objects('', pgAdmin.Browser.tree.selected());
+        }
       },
     });
 

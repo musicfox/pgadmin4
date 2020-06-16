@@ -20,10 +20,6 @@ from pgadmin.utils.ajax import make_json_response, internal_server_error, \
     make_response as ajax_response, gone
 from pgadmin.utils.driver import get_driver
 from config import PG_DEFAULT_DRIVER
-from pgadmin.utils import IS_PY2
-# If we are in Python3
-if not IS_PY2:
-    unicode = str
 
 
 class EventTriggerModule(CollectionNodeModule):
@@ -195,6 +191,11 @@ class EventTriggerView(PGChildNodeView):
             self.conn = self.manager.connection(did=kwargs['did'])
             self.template_path = 'event_triggers/sql/9.3_plus'
 
+            self.datlastsysoid = \
+                self.manager.db_info[kwargs['did']]['datlastsysoid'] \
+                if self.manager.db_info is not None and \
+                kwargs['did'] in self.manager.db_info else 0
+
             return f(*args, **kwargs)
 
         return wrap
@@ -219,6 +220,7 @@ class EventTriggerView(PGChildNodeView):
 
         if not status:
             return internal_server_error(errormsg=res)
+
         return ajax_response(
             response=res['rows'],
             status=200
@@ -337,6 +339,7 @@ class EventTriggerView(PGChildNodeView):
             )
 
         result = res['rows'][0]
+        result['is_sys_obj'] = (result['oid'] <= self.datlastsysoid)
         result = self._formatter(result)
 
         return ajax_response(
@@ -378,8 +381,7 @@ class EventTriggerView(PGChildNodeView):
                 status=400,
                 success=0,
                 errormsg=gettext(
-                    "Could not find the required parameter %s." % err
-                )
+                    "Could not find the required parameter ({}).").format(err)
             )
         try:
             sql = render_template(
@@ -440,7 +442,7 @@ class EventTriggerView(PGChildNodeView):
         try:
             sql = self.get_sql(data, etid)
             # Most probably this is due to error
-            if not isinstance(sql, (str, unicode)):
+            if not isinstance(sql, str):
                 return sql
             sql = sql.strip('\n').strip(' ')
             if sql != "":
@@ -567,7 +569,7 @@ class EventTriggerView(PGChildNodeView):
         try:
             sql = self.get_sql(data, etid)
             # Most probably this is due to error
-            if not isinstance(sql, (str, unicode)):
+            if not isinstance(sql, str):
                 return sql
             sql = sql.strip('\n').strip(' ')
             sql = re.sub('\n{2,}', '\n\n', sql)
@@ -637,8 +639,8 @@ class EventTriggerView(PGChildNodeView):
                     status=410,
                     success=0,
                     errormsg=gettext(
-                        "Could not find the required parameter %s." % err
-                    )
+                        "Could not find the required parameter ({})."
+                    ).format(arg)
                 )
             sql = render_template(
                 "/".join([self.template_path, 'create.sql']),
@@ -676,7 +678,9 @@ class EventTriggerView(PGChildNodeView):
 
         if len(res['rows']) == 0:
             return gone(
-                _("Could not find the specified event trigger on the server.")
+                gettext(
+                    "Could not find the specified event trigger on the "
+                    "server.")
             )
 
         result = res['rows'][0]

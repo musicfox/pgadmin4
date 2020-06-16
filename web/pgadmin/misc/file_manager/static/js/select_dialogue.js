@@ -22,7 +22,7 @@ module.exports =  Alertify.dialog('fileSelectionDlg', function() {
       // Set title and button name
       var self = this;
       if (_.isUndefined(params['dialog_title'])) {
-        params['dialog_title'] = 'Select file';
+        params['dialog_title'] = gettext('Select file');
       }
       self.dialog_type = params['dialog_type'];
 
@@ -91,9 +91,6 @@ module.exports =  Alertify.dialog('fileSelectionDlg', function() {
           key: 13,
           className: 'btn btn-primary fa fa-file file_manager_ok pg-alertify-button disabled',
         }],
-        focus: {
-          element: 0,
-        },
         options: {
           closableByDimmer: false,
           maximizable: false,

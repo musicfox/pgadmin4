@@ -10,9 +10,10 @@
 """ Implements Partitions Node """
 
 import re
+import random
 import simplejson as json
 import pgadmin.browser.server_groups.servers.databases.schemas as schema
-from flask import render_template, request
+from flask import render_template, request, current_app
 from flask_babelex import gettext
 from pgadmin.browser.server_groups.servers.databases.schemas.utils \
     import DataTypeReader, VacuumSettings
@@ -21,19 +22,18 @@ from pgadmin.utils.ajax import internal_server_error, \
 from pgadmin.browser.server_groups.servers.databases.schemas.tables.utils \
     import BaseTableView
 from pgadmin.browser.collection import CollectionNodeModule
-from pgadmin.utils.ajax import make_json_response, precondition_required
-from config import PG_DEFAULT_DRIVER
+from pgadmin.utils.ajax import make_json_response
 from pgadmin.browser.utils import PGChildModule
 from pgadmin.tools.schema_diff.node_registry import SchemaDiffRegistry
-from pgadmin.tools.schema_diff.directory_compare import compare_dictionaries,\
-    directory_diff
-from pgadmin.tools.schema_diff.model import SchemaDiffModel
 from pgadmin.tools.schema_diff.compare import SchemaDiffObjectCompare
 
 
 def backend_supported(module, manager, **kwargs):
-    if 'tid' in kwargs and CollectionNodeModule.BackendSupported(
-            module, manager, **kwargs):
+
+    if CollectionNodeModule.BackendSupported(module, manager, **kwargs):
+        if 'tid' not in kwargs:
+            return True
+
         conn = manager.connection(did=kwargs['did'])
 
         template_path = 'partitions/sql/{0}/#{0}#{1}#'.format(
@@ -153,6 +153,24 @@ class PartitionsModule(CollectionNodeModule):
         """
         return False
 
+    @property
+    def csssnippets(self):
+        """
+        Returns a snippet of css to include in the page
+        """
+        snippets = [
+            render_template(
+                "partitions/css/partition.css",
+                node_type=self.node_type,
+                _=gettext
+            )
+        ]
+
+        for submodule in self.submodules:
+            snippets.extend(submodule.csssnippets)
+
+        return snippets
+
 
 blueprint = PartitionsModule(__name__)
 
@@ -194,7 +212,7 @@ class PartitionsView(BaseTableView, DataTypeReader, VacuumSettings,
     operations = dict({
         'obj': [
             {'get': 'properties', 'delete': 'delete', 'put': 'update'},
-            {'get': 'list', 'post': 'create'}
+            {'get': 'list', 'post': 'create', 'delete': 'delete'}
         ],
         'delete': [{'delete': 'delete'}, {'delete': 'delete'}],
         'nodes': [{'get': 'nodes'}, {'get': 'nodes'}],
@@ -202,13 +220,13 @@ class PartitionsView(BaseTableView, DataTypeReader, VacuumSettings,
         'sql': [{'get': 'sql'}],
         'msql': [{'get': 'msql'}, {}],
         'detach': [{'put': 'detach'}],
-        'truncate': [{'put': 'truncate'}]
-
+        'truncate': [{'put': 'truncate'}],
+        'set_trigger': [{'put': 'enable_disable_triggers'}]
     })
 
     # Schema Diff: Keys to ignore while comparing
     keys_to_ignore = ['oid', 'schema', 'vacuum_table',
-                      'vacuum_toast', 'edit_types']
+                      'vacuum_toast', 'edit_types', 'oid-2']
 
     def get_children_nodes(self, manager, **kwargs):
         nodes = []
@@ -287,11 +305,12 @@ class PartitionsView(BaseTableView, DataTypeReader, VacuumSettings,
             return internal_server_error(errormsg=rset)
 
         def browser_node(row):
+            icon = self.get_partition_icon_css_class(row)
             return self.blueprint.generate_browser_node(
                 row['oid'],
                 tid,
                 row['name'],
-                icon=self.get_icon_css_class({}),
+                icon=icon,
                 tigger_count=row['triggercount'],
                 has_enable_triggers=row['has_enable_triggers'],
                 is_partitioned=row['is_partitioned'],
@@ -445,58 +464,57 @@ class PartitionsView(BaseTableView, DataTypeReader, VacuumSettings,
     @BaseTableView.check_precondition
     def get_sql_from_diff(self, **kwargs):
         """
-        This function will create sql on the basis the difference of 2 tables
+        This function is used to get the DDL/DML statements for
+        partitions.
+
+        :param kwargs:
+        :return:
         """
-        data = dict()
-        res = None
-        sid = kwargs['sid']
-        did = kwargs['did']
-        scid = kwargs['scid']
-        tid = kwargs['tid']
-        ptid = kwargs['ptid']
-        diff_data = kwargs['diff_data'] if 'diff_data' in kwargs else None
-        json_resp = kwargs['json_resp'] if 'json_resp' in kwargs else True
-        diff_schema = kwargs['diff_schema'] if 'diff_schema' in kwargs else\
-            None
 
-        if diff_data:
-            SQL = render_template("/".join([self.partition_template_path,
-                                            'properties.sql']),
-                                  did=did, scid=scid, tid=tid,
-                                  ptid=ptid, datlastsysoid=self.datlastsysoid)
-            status, res = self.conn.execute_dict(SQL)
-            if not status:
-                return internal_server_error(errormsg=res)
+        source_data = kwargs['source_data'] if 'source_data' in kwargs \
+            else None
+        target_data = kwargs['target_data'] if 'target_data' in kwargs \
+            else None
 
-            SQL, name = self.get_sql(did, scid, ptid, diff_data, res)
-            SQL = re.sub('\n{2,}', '\n\n', SQL)
-            SQL = SQL.strip('\n')
-            return SQL
-        else:
-            main_sql = []
+        # Store the original name and create a temporary name for
+        # the partitioned(base) table.
+        target_data['orig_name'] = target_data['name']
+        target_data['name'] = 'temp_partitioned_{0}'.format(
+            random.randint(1, 9999999))
+        # For PG/EPAS 11 and above when we copy the data from original
+        # table to temporary table for schema diff, we will have to create
+        # a default partition to prevent the data loss.
+        target_data['default_partition_name'] = \
+            target_data['orig_name'] + '_default'
 
-            SQL = render_template("/".join([self.partition_template_path,
-                                            'properties.sql']),
-                                  did=did, scid=scid, tid=tid,
-                                  ptid=ptid, datlastsysoid=self.datlastsysoid)
-            status, res = self.conn.execute_dict(SQL)
-            if not status:
-                return internal_server_error(errormsg=res)
+        # Copy the partition scheme from source to target.
+        if 'partition_scheme' in source_data:
+            target_data['partition_scheme'] = source_data['partition_scheme']
 
-            if len(res['rows']) == 0:
-                return gone(gettext(
-                    "The specified partitioned table could not be found."))
+        partition_data = dict()
+        partition_data['name'] = target_data['name']
+        partition_data['schema'] = target_data['schema']
+        partition_data['partition_type'] = source_data['partition_type']
+        partition_data['default_partition_header'] = \
+            '-- Create a default partition to prevent the data loss.\n' \
+            '-- It helps when none of the partitions of a relation\n' \
+            '-- matches the inserted data.'
 
-            data = res['rows'][0]
+        # Create temporary name for partitions
+        for item in source_data['partitions']:
+            item['temp_partition_name'] = 'partition_{0}'.format(
+                random.randint(1, 9999999))
 
-            if diff_schema:
-                data['schema'] = diff_schema
-                data['parent_schema'] = diff_schema
+        partition_data['partitions'] = source_data['partitions']
 
-            return BaseTableView.get_reverse_engineered_sql(self, did,
-                                                            scid, ptid,
-                                                            main_sql, data,
-                                                            False)
+        partition_sql = self.get_partitions_sql(partition_data,
+                                                schema_diff=True)
+
+        return render_template(
+            "/".join([self.partition_template_path, 'partition_diff.sql']),
+            conn=self.conn, data=target_data, partition_sql=partition_sql,
+            partition_data=partition_data
+        )
 
     @BaseTableView.check_precondition
     def detach(self, gid, sid, did, scid, tid, ptid):
@@ -754,60 +772,80 @@ class PartitionsView(BaseTableView, DataTypeReader, VacuumSettings,
         except Exception as e:
             return internal_server_error(errormsg=str(e))
 
-    def ddl_compare(self, **kwargs):
+    @BaseTableView.check_precondition
+    def enable_disable_triggers(self, gid, sid, did, scid, tid, ptid):
         """
-        This function will compare index properties and
-        return the difference of SQL
+        This function will enable/disable trigger(s) on the partition object
+
+         Args:
+           gid: Server Group ID
+           sid: Server ID
+           did: Database ID
+           scid: Schema ID
+           tid: Table ID
+           ptid: Partition Table ID
         """
+        data = request.form if request.form else json.loads(
+            request.data, encoding='utf-8'
+        )
+        # Convert str 'true' to boolean type
+        is_enable_trigger = data['is_enable_trigger']
 
-        src_sid = kwargs.get('source_sid')
-        src_did = kwargs.get('source_did')
-        src_scid = kwargs.get('source_scid')
-        src_tid = kwargs.get('source_tid')
-        src_oid = kwargs.get('source_oid')
-        tar_sid = kwargs.get('target_sid')
-        tar_did = kwargs.get('target_did')
-        tar_scid = kwargs.get('target_scid')
-        tar_tid = kwargs.get('target_tid')
-        tar_oid = kwargs.get('target_oid')
-        comp_status = kwargs.get('comp_status')
-
-        source = ''
-        target = ''
-        diff = ''
-
-        status, target_schema = self.get_schema_for_schema_diff(tar_sid,
-                                                                tar_did,
-                                                                tar_scid
-                                                                )
-        if not status:
-            return internal_server_error(errormsg=target_schema)
-
-        if comp_status == SchemaDiffModel.COMPARISON_STATUS['source_only']:
-            diff = self.get_sql_from_diff(sid=src_sid,
-                                          did=src_did, scid=src_scid,
-                                          tid=src_tid, ptid=src_oid,
-                                          diff_schema=target_schema)
-
-        elif comp_status == SchemaDiffModel.COMPARISON_STATUS['target_only']:
-            SQL = render_template("/".join([self.partition_template_path,
-                                            'properties.sql']),
-                                  did=did, scid=scid, tid=tid,
-                                  ptid=ptid, datlastsysoid=self.datlastsysoid)
-            status, res = self.conn.execute_dict(SQL)
-
+        try:
             SQL = render_template(
-                "/".join([self.table_template_path, 'properties.sql']),
-                did=tar_did, scid=tar_scid, tid=tar_oid,
+                "/".join([self.partition_template_path, 'properties.sql']),
+                did=did, scid=scid, tid=tid, ptid=ptid,
                 datlastsysoid=self.datlastsysoid
             )
             status, res = self.conn.execute_dict(SQL)
-            if status:
-                self.cmd = 'delete'
-                diff = super(PartitionsView, self).get_delete_sql(res)
-                self.cmd = None
+            if not status:
+                return internal_server_error(errormsg=res)
+            data = res['rows'][0]
 
-        return diff
+            SQL = render_template(
+                "/".join([
+                    self.table_template_path, 'enable_disable_trigger.sql'
+                ]),
+                data=data, is_enable_trigger=is_enable_trigger
+            )
+            status, res = self.conn.execute_scalar(SQL)
+            if not status:
+                return internal_server_error(errormsg=res)
+
+            return make_json_response(
+                success=1,
+                info=gettext("Trigger(s) have been disabled")
+                if is_enable_trigger == 'D'
+                else gettext("Trigger(s) have been enabled"),
+                data={
+                    'id': ptid,
+                    'scid': scid
+                }
+            )
+        except Exception as e:
+            return internal_server_error(errormsg=str(e))
+
+    def ddl_compare(self, **kwargs):
+        """
+        This function returns the DDL/DML statements based on the
+        comparison status.
+
+        :param kwargs:
+        :return:
+        """
+
+        tgt_params = kwargs.get('target_params')
+        parent_source_data = kwargs.get('parent_source_data')
+        parent_target_data = kwargs.get('parent_target_data')
+
+        diff = self.get_sql_from_diff(sid=tgt_params['sid'],
+                                      did=tgt_params['did'],
+                                      scid=tgt_params['scid'],
+                                      tid=tgt_params['tid'],
+                                      source_data=parent_source_data,
+                                      target_data=parent_target_data)
+
+        return diff + '\n'
 
 
 SchemaDiffRegistry(blueprint.node_type, PartitionsView, 'table')

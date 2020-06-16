@@ -1,8 +1,6 @@
 *.autosave
 *.db
-*.diff
 *.o
-*.patch
 *.psp
 *.pyc
 *.pyo
@@ -11,14 +9,18 @@
 .DS_Store
 .idea
 .vscode
+/*.diff
+/*.patch
 /dist
+/debian-build
 /docker-build
 /mac-build
 /pip-build
+/redhat-build
 /src-build
 /win-build
 _build
-build-*
+/build-*
 pgadmin4.log
 pkg/win32/installer.iss
 pkg/mac/codesign.conf
@@ -39,6 +41,7 @@ web/config_local.py
 web/pgadmin/misc/themes/pgadmin.themes.json
 web/geckodriver.log
 web/regression/test_config.json
+web/regression/.coveragerc
 node_modules/
 web/pgAdmin/static/js/generated
 web/pgadmin/static/js/generated
@@ -46,3 +49,4 @@ web/yarn-error.log
 /web/cacert.pem
 auditjs.html
 auditpy.txt
+/venv/

@@ -23,15 +23,15 @@ class MenuActions: public QObject
     Q_OBJECT
 public:
     MenuActions();
-    ~MenuActions();
 
     void setAppServerUrl(QString appServerUrl);
     void setLogFile(QString logFile);
     QString getAppServerUrl() { return m_appServerUrl; }
 
 private:
-    QString m_appServerUrl, m_logFile;
-    LogWindow *m_logWindow;
+    QString m_appServerUrl = "";
+    QString m_logFile = "";
+    LogWindow *m_logWindow = Q_NULLPTR;
 
 protected slots:
     void onNew();

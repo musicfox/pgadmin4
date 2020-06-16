@@ -103,7 +103,7 @@ define('misc.statistics', [
       onText: gettext('True'),
       offText: gettext('False'),
       onColor: 'success',
-      offColor: 'primary',
+      offColor: 'ternary',
       size: 'mini',
     }
   );
@@ -282,7 +282,7 @@ define('misc.statistics', [
                   }
 
                   self.grid = new Backgrid.Grid({
-                    emptyText: 'No data found',
+                    emptyText: gettext('No data found'),
                     columns: self.columns,
                     collection: self.collection,
                     className: GRID_CLASSES,

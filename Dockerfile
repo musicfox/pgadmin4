@@ -12,7 +12,7 @@
 # and clean up the web/ source code
 #########################################################################
 
-FROM node:10-alpine AS app-builder
+FROM node:12-alpine3.11 AS app-builder
 
 RUN apk add --no-cache \
     autoconf \
@@ -45,7 +45,12 @@ RUN npm install && \
 	npm audit fix && \
 	rm -f yarn.lock && \
 	yarn import && \
-	yarn audit && \
+# Commented the below line to avoid vulnerability in decompress package and
+# audit only dependencies folder. Refer https://www.npmjs.com/advisories/1217.
+# Pull request is already been send https://github.com/kevva/decompress/pull/73,
+# once fixed we will uncomment it.
+#	yarn audit && \
+	yarn audit --groups dependencies && \
 	rm -f package-lock.json && \
     yarn run bundle && \
     rm -rf node_modules \
@@ -61,7 +66,7 @@ RUN npm install && \
 # Now, create a documentation build container for the Sphinx docs
 #########################################################################
 
-FROM python:3.7-alpine3.10 as docs-builder
+FROM python:3.8-alpine3.11 as docs-builder
 
 # Install only dependencies absolutely required for documentation building
 RUN apk add --no-cache \
@@ -71,7 +76,7 @@ RUN apk add --no-cache \
         libffi-dev && \
     pip install --no-cache-dir \
         sphinx \
-        flask_security \
+        flask_security_too \
         flask_paranoid \
         python-dateutil \
         flask_sqlalchemy \
@@ -93,21 +98,15 @@ RUN LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8 make -C /pgadmin4/docs/en_US -f Makefile
 # Create additional builders to get all of the PostgreSQL utilities
 #########################################################################
 
-FROM postgres:9.4-alpine as pg94-builder
 FROM postgres:9.5-alpine as pg95-builder
 FROM postgres:9.6-alpine as pg96-builder
 FROM postgres:10-alpine as pg10-builder
 FROM postgres:11-alpine as pg11-builder
 FROM postgres:12-alpine as pg12-builder
 
-FROM alpine:3.10 as tool-builder
+FROM alpine:3.11 as tool-builder
 
 # Copy the PG binaries
-COPY --from=pg94-builder /usr/local/bin/pg_dump /usr/local/pgsql/pgsql-9.4/
-COPY --from=pg94-builder /usr/local/bin/pg_dumpall /usr/local/pgsql/pgsql-9.4/
-COPY --from=pg94-builder /usr/local/bin/pg_restore /usr/local/pgsql/pgsql-9.4/
-COPY --from=pg94-builder /usr/local/bin/psql /usr/local/pgsql/pgsql-9.4/
-
 COPY --from=pg95-builder /usr/local/bin/pg_dump /usr/local/pgsql/pgsql-9.5/
 COPY --from=pg95-builder /usr/local/bin/pg_dumpall /usr/local/pgsql/pgsql-9.5/
 COPY --from=pg95-builder /usr/local/bin/pg_restore /usr/local/pgsql/pgsql-9.5/
@@ -137,7 +136,7 @@ COPY --from=pg12-builder /usr/local/bin/psql /usr/local/pgsql/pgsql-12/
 # Assemble everything into the final container.
 #########################################################################
 
-FROM python:3.7-alpine3.10
+FROM python:3.8-alpine3.11
 
 COPY --from=tool-builder /usr/local/pgsql /usr/local/
 
@@ -189,7 +188,7 @@ RUN groupadd -g 5050 pgadmin && \
     chown pgadmin:pgadmin /var/log/pgadmin && \
     touch /pgadmin4/config_distro.py && \
     chown pgadmin:pgadmin /pgadmin4/config_distro.py && \
-    setcap CAP_NET_BIND_SERVICE=+eip /usr/local/bin/python3.7
+    setcap CAP_NET_BIND_SERVICE=+eip /usr/local/bin/python3.8
 USER pgadmin
 
 # Finish up

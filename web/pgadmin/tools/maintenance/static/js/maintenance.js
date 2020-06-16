@@ -6,7 +6,6 @@
 // This software is released under the PostgreSQL Licence
 //
 //////////////////////////////////////////////////////////////
-
 define([
   'sources/gettext', 'sources/url_for', 'jquery', 'underscore',
   'pgadmin.alertifyjs', 'sources/pgadmin', 'pgadmin.browser', 'backbone',
@@ -277,6 +276,7 @@ define([
                     type: 'button',
                     url: 'maintenance.html',
                     label: gettext('Maintenance'),
+                    'aria-label': gettext('Object Help'),
                   },
                 }, {
                   text: '',
@@ -347,6 +347,8 @@ define([
                   table = treeInfo.partition._label;
                 } else if (treeInfo.table != undefined) {
                   table = treeInfo.table._label;
+                } else if (treeInfo.mview != undefined) {
+                  table = treeInfo.mview._label;
                 }
 
                 if (treeInfo.primary_key != undefined) {
@@ -417,7 +419,6 @@ define([
             prepare: function() {
               // Main maintenance tool dialog container
               var $container = $('<div class=\'maintenance_dlg\'></div>');
-
               var t = pgBrowser.tree,
                 i = t.selected(),
                 d = i && i.length == 1 ? t.itemData(i) : undefined,
@@ -448,11 +449,11 @@ define([
               if (d._type == 'primary_key' || d._type == 'unique_constraint' ||
                 d._type == 'index') {
                 var vacuum_analyze_btns = $container.find(
-                  '.pgadmin-controls label:lt(2)'
-                ).removeClass('active').addClass('disabled');
+                  '.btn-group label.btn:lt(2)'
+                ).addClass('disabled');
                 // Find reindex button element & add active class to it
                 var reindex_btn = vacuum_analyze_btns[1].nextElementSibling;
-                $(reindex_btn).addClass('active');
+                $(reindex_btn).trigger('click');
               }
 
               view.$el.attr('tabindex', -1);

@@ -29,7 +29,7 @@ from flask_security.recoverable import reset_password_token_status, \
 from flask_security.signals import reset_password_instructions_sent
 from flask_security.utils import config_value, do_flash, get_url, \
     get_message, slash_url_suffix, login_user, send_mail
-from flask_security.views import _security, _commit, _render_json, _ctx
+from flask_security.views import _security, _commit, _ctx
 from werkzeug.datastructures import MultiDict
 
 import config
@@ -45,11 +45,20 @@ from pgadmin.browser.register_browser_preferences import \
 from pgadmin.utils.master_password import validate_master_password, \
     set_masterpass_check_text, cleanup_master_password, get_crypt_key, \
     set_crypt_key, process_masterpass_disabled
+from pgadmin.model import User
 
 try:
     import urllib.request as urlreq
 except ImportError as e:
     import urllib2 as urlreq
+
+try:
+    from flask_security.views import default_render_json
+except ImportError as e:
+    # Support Flask-Security-Too == 3.2
+    import sys
+    if sys.version_info < (3, 8):
+        from flask_security.views import _render_json as default_render_json
 
 MODULE_NAME = 'browser'
 
@@ -542,6 +551,51 @@ def index():
             base_url=None
         )
 
+    # Check the browser is a support version
+    # NOTE: If the checks here are updated, make sure the supported versions
+    # at https://www.pgadmin.org/faq/#11 are updated to match!
+    if config.CHECK_SUPPORTED_BROWSER:
+        browser = request.user_agent.browser
+        version = request.user_agent.version and int(
+            request.user_agent.version.split('.')[0])
+
+        browser_name = None
+        browser_known = True
+        if browser == 'chrome' and version < 72:
+            browser_name = 'Chrome'
+        elif browser == 'firefox' and version < 65:
+            browser_name = 'Firefox'
+        # comparing EdgeHTML engine version
+        elif browser == 'edge' and version < 18:
+            browser_name = 'Edge'
+            # browser version returned by edge browser is actual EdgeHTML
+            # engine version. Below code gets actual browser version using
+            # EdgeHTML version
+            engine_to_actual_browser_version = {
+                16: 41,
+                17: 42,
+                18: 44
+            }
+            version = engine_to_actual_browser_version.get(version, '< 44')
+        elif browser == 'safari' and version < 12:
+            browser_name = 'Safari'
+        elif browser == 'msie':
+            browser_name = 'Internet Explorer'
+        elif browser != 'chrome' and browser != 'firefox' and \
+                browser != 'edge' and browser != 'safari':
+            browser_name = browser
+            browser_known = False
+
+        if browser_name is not None:
+            msg = render_template(
+                MODULE_NAME + "/browser.html",
+                version=version,
+                browser=browser_name,
+                known=browser_known
+            )
+
+            flash(msg, 'warning')
+
     # Get the current version info from the website, and flash a message if
     # the user is out of date, and the check is enabled.
     if config.UPGRADE_CHECK_ENABLED:
@@ -567,25 +621,37 @@ def index():
         except Exception:
             current_app.logger.exception('Exception when checking for update')
 
-        if data is not None:
-            if data[config.UPGRADE_CHECK_KEY]['version_int'] > \
-                    config.APP_VERSION_INT:
-                msg = render_template(
-                    MODULE_NAME + "/upgrade.html",
-                    current_version=config.APP_VERSION,
-                    upgrade_version=data[config.UPGRADE_CHECK_KEY]['version'],
-                    product_name=config.APP_NAME,
-                    download_url=data[config.UPGRADE_CHECK_KEY]['download_url']
-                )
+        if data is not None and \
+            data[config.UPGRADE_CHECK_KEY]['version_int'] > \
+                config.APP_VERSION_INT:
+            msg = render_template(
+                MODULE_NAME + "/upgrade.html",
+                current_version=config.APP_VERSION,
+                upgrade_version=data[config.UPGRADE_CHECK_KEY]['version'],
+                product_name=config.APP_NAME,
+                download_url=data[config.UPGRADE_CHECK_KEY]['download_url']
+            )
 
-                flash(msg, 'warning')
+            flash(msg, 'warning')
+
+    auth_only_internal = False
+    auth_source = []
+
+    if config.SERVER_MODE:
+        if len(config.AUTHENTICATION_SOURCES) == 1\
+                and 'internal' in config.AUTHENTICATION_SOURCES:
+            auth_only_internal = True
+        auth_source = session['_auth_source_manager_obj'][
+            'source_friendly_name']
 
     response = Response(render_template(
         MODULE_NAME + "/index.html",
-        username=current_user.email,
+        username=current_user.username,
+        auth_source=auth_source,
         is_admin=current_user.has_role("Administrator"),
         logout_url=_get_logout_url(),
-        _=gettext
+        _=gettext,
+        auth_only_internal=auth_only_internal
     ))
 
     # Set the language cookie after login, so next time the user will have that
@@ -952,7 +1018,7 @@ if hasattr(config, 'SECURITY_CHANGEABLE') and config.SECURITY_CHANGEABLE:
 
         if request.json and not has_error:
             form.user = current_user
-            return _render_json(form)
+            return default_render_json(form)
 
         return _security.render_template(
             config_value('CHANGE_PASSWORD_TEMPLATE'),
@@ -994,43 +1060,60 @@ if hasattr(config, 'SECURITY_RECOVERABLE') and config.SECURITY_RECOVERABLE:
             form = form_class()
 
         if form.validate_on_submit():
-            try:
-                send_reset_password_instructions(form.user)
-            except SOCKETErrorException as e:
-                # Handle socket errors which are not covered by SMTPExceptions.
-                logging.exception(str(e), exc_info=True)
-                flash(gettext(u'SMTP Socket error: {}\n'
-                              u'Your password has not been changed.'
-                              ).format(e),
-                      'danger')
-                has_error = True
-            except (SMTPConnectError, SMTPResponseException,
-                    SMTPServerDisconnected, SMTPDataError, SMTPHeloError,
-                    SMTPException, SMTPAuthenticationError, SMTPSenderRefused,
-                    SMTPRecipientsRefused) as e:
+            # Check the Authentication source of the User
+            user = User.query.filter_by(
+                email=form.data['email'],
+                auth_source=current_app.PGADMIN_DEFAULT_AUTH_SOURCE
+            ).first()
 
-                # Handle smtp specific exceptions.
-                logging.exception(str(e), exc_info=True)
-                flash(gettext(u'SMTP error: {}\n'
-                              u'Your password has not been changed.'
-                              ).format(e),
+            if user is None:
+                # If the user is not an internal user, raise the exception
+                flash(gettext('Your account is authenticated using an '
+                              'external {} source. '
+                              'Please contact the administrators of this '
+                              'service if you need to reset your password.'
+                              ).format(form.user.auth_source),
                       'danger')
                 has_error = True
-            except Exception as e:
-                # Handle other exceptions.
-                logging.exception(str(e), exc_info=True)
-                flash(gettext(u'Error: {}\n'
-                              u'Your password has not been changed.'
-                              ).format(e),
-                      'danger')
-                has_error = True
+            if not has_error:
+                try:
+                    send_reset_password_instructions(form.user)
+                except SOCKETErrorException as e:
+                    # Handle socket errors which are not
+                    # covered by SMTPExceptions.
+                    logging.exception(str(e), exc_info=True)
+                    flash(gettext(u'SMTP Socket error: {}\n'
+                                  u'Your password has not been changed.'
+                                  ).format(e),
+                          'danger')
+                    has_error = True
+                except (SMTPConnectError, SMTPResponseException,
+                        SMTPServerDisconnected, SMTPDataError, SMTPHeloError,
+                        SMTPException, SMTPAuthenticationError,
+                        SMTPSenderRefused, SMTPRecipientsRefused) as e:
+
+                    # Handle smtp specific exceptions.
+                    logging.exception(str(e), exc_info=True)
+                    flash(gettext(u'SMTP error: {}\n'
+                                  u'Your password has not been changed.'
+                                  ).format(e),
+                          'danger')
+                    has_error = True
+                except Exception as e:
+                    # Handle other exceptions.
+                    logging.exception(str(e), exc_info=True)
+                    flash(gettext(u'Error: {}\n'
+                                  u'Your password has not been changed.'
+                                  ).format(e),
+                          'danger')
+                    has_error = True
 
             if request.json is None and not has_error:
                 do_flash(*get_message('PASSWORD_RESET_REQUEST',
                                       email=form.user.email))
 
         if request.json and not has_error:
-            return _render_json(form, include_user=False)
+            return default_render_json(form, include_user=False)
 
         return _security.render_template(
             config_value('FORGOT_PASSWORD_TEMPLATE'),

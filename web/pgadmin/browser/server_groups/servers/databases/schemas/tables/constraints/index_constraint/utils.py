@@ -14,10 +14,6 @@ from flask_babelex import gettext as _
 from pgadmin.utils.ajax import internal_server_error
 from pgadmin.utils.exception import ObjectGone
 from functools import wraps
-from pgadmin.utils import IS_PY2
-# If we are in Python3
-if not IS_PY2:
-    unicode = str
 
 
 def get_template_path(f):
@@ -137,14 +133,22 @@ def get_index_constraint_sql(conn, did, tid, data, template_path=None):
             # If constraint(s) is/are deleted
             if 'deleted' in constraint:
                 for c in constraint['deleted']:
-                    c['schema'] = data['schema']
-                    c['table'] = data['name']
+                    del_cols = []
+                    if 'columns_to_be_dropped' in data:
+                        del_cols = list(map(lambda x, y: x['column'] in y,
+                                            c['columns'],
+                                            data['columns_to_be_dropped'])
+                                        )
 
-                    # Sql for drop
-                    sql.append(render_template("/".join([template_path,
-                                                         'delete.sql']),
-                                               data=c,
-                                               conn=conn).strip('\n'))
+                    if len(del_cols) == 0:
+                        c['schema'] = data['schema']
+                        c['table'] = data['name']
+
+                        # Sql for drop
+                        sql.append(render_template("/".join([template_path,
+                                                             'delete.sql']),
+                                                   data=c,
+                                                   conn=conn).strip('\n'))
             if 'changed' in constraint:
                 for c in constraint['changed']:
                     c['schema'] = data['schema']
@@ -210,7 +214,7 @@ def get_sql(conn, data, did, tid, ctype, cid=None, template_path=None):
         ]
 
         def is_key_str(key, data):
-            return isinstance(data[key], (str, unicode)) and data[key] != ""
+            return isinstance(data[key], str) and data[key] != ""
 
         def is_key_list(key, data):
             return isinstance(data[key], list) and len(data[param]) > 0
@@ -218,9 +222,10 @@ def get_sql(conn, data, did, tid, ctype, cid=None, template_path=None):
         for arg in required_args:
             if isinstance(arg, list):
                 for param in arg:
-                    if param in data:
-                        if is_key_str(param, data) or is_key_list(param, data):
-                            break
+                    if param in data and \
+                            (is_key_str(param, data) or
+                             is_key_list(param, data)):
+                        break
                 else:
                     return _('-- definition incomplete'), name
 

@@ -37,7 +37,7 @@ define('pgadmin.node.foreign_data_wrapper', [
       if (_.isUndefined(this.get('fdwoption')) ||
             _.isNull(this.get('fdwoption')) ||
             String(this.get('fdwoption')).replace(/^\s+|\s+$/g, '') == '') {
-        var msg = 'Please enter an option name';
+        var msg = gettext('Please enter an option name.');
         this.errorModel.set('fdwoption', msg);
         return msg;
       } else {
@@ -108,6 +108,7 @@ define('pgadmin.node.foreign_data_wrapper', [
         defaults: {
           name: undefined,
           fdwowner: undefined,
+          is_sys_obj: undefined,
           comment: undefined,
           fdwvalue: undefined,
           fdwhan: undefined,
@@ -130,15 +131,15 @@ define('pgadmin.node.foreign_data_wrapper', [
         // Defining schema for the foreign data wrapper node
         schema: [{
           id: 'name', label: gettext('Name'), cell: 'string',
-          type: 'text', disabled: function() {
-            // name field will be disabled only if edit mode and server version is below 9.2
+          type: 'text', readonly: function() {
+            // name field will be disabled only if edit mode
             return (
-              this.mode == 'edit' && this.node_info.server.version < 90200
+              this.mode == 'edit'
             );
           },
         },{
           id: 'fdwoid', label: gettext('OID'), cell: 'string',
-          type: 'text', disabled: true, mode: ['properties'],
+          type: 'text', mode: ['properties'],
         },{
           id: 'fdwowner', label: gettext('Owner'), type: 'text',
           control: Backform.NodeListByNameControl, node: 'role',
@@ -146,6 +147,9 @@ define('pgadmin.node.foreign_data_wrapper', [
         },{
           id: 'fdwhan', label: gettext('Handler'), type: 'text', control: 'node-ajax-options',
           group: gettext('Definition'), mode: ['edit', 'create', 'properties'], url:'get_handlers',
+        },{
+          id: 'is_sys_obj', label: gettext('System foreign data wrapper?'),
+          cell:'boolean', type: 'switch', mode: ['properties'],
         },{
           id: 'description', label: gettext('Comment'), cell: 'string',
           type: 'multiline',
@@ -168,7 +172,7 @@ define('pgadmin.node.foreign_data_wrapper', [
           }), control: 'unique-col-collection',
         },{
           id: 'acl', label: gettext('Privileges'), type: 'text',
-          group: gettext('Security'), mode: ['properties'], disabled: true,
+          group: gettext('Security'), mode: ['properties'],
         }],
         /* validate function is used to validate the input given by
           * the user. In case of error, message will be displayed on

@@ -11,15 +11,11 @@
 #
 ##########################################################################
 
+import builtins
 import logging
 import os
 import sys
-import json
 
-if sys.version_info[0] >= 3:
-    import builtins
-else:
-    import __builtin__ as builtins
 
 # We need to include the root directory in sys.path to ensure that we can
 # find everything we need when running in the standalone runtime.
@@ -27,7 +23,7 @@ root = os.path.dirname(os.path.realpath(__file__))
 if sys.path[0] != root:
     sys.path.insert(0, root)
 
-from pgadmin.utils import env, IS_PY2, IS_WIN, fs_short_path
+from pgadmin.utils import env, IS_WIN, fs_short_path
 
 ##########################################################################
 # Application settings
@@ -51,7 +47,7 @@ APP_ICON = 'pg-icon'
 
 # Application version number components
 APP_RELEASE = 4
-APP_REVISION = 17
+APP_REVISION = 22
 
 # Application version suffix, e.g. 'beta1', 'dev'. Usually an empty string
 # for GA releases.
@@ -60,7 +56,7 @@ APP_SUFFIX = ''
 # Numeric application version for upgrade checks. Should be in the format:
 # [X]XYYZZ, where X is the release version, Y is the revision, with a leading
 # zero if needed, and Z represents the suffix, with a leading zero if needed
-APP_VERSION_INT = 41700
+APP_VERSION_INT = 42200
 
 # DO NOT CHANGE!
 # The application version string, constructed from the components
@@ -84,6 +80,7 @@ HELP_PATH = '../../../docs/en_US/_build/html/'
 LANGUAGES = {
     'en': 'English',
     'zh': 'Chinese (Simplified)',
+    'cs': 'Czech',
     'fr': 'French',
     'de': 'German',
     'it': 'Italian',
@@ -358,6 +355,9 @@ UPGRADE_CHECK_KEY = 'pgadmin4'
 CA_FILE = os.path.join(os.path.dirname(os.path.realpath(__file__)),
                        "cacert.pem")
 
+# Check if the detected browser is supported
+CHECK_SUPPORTED_BROWSER = True
+
 ##########################################################################
 # Storage Manager storage url config settings
 # If user sets STORAGE_DIR to empty it will show all volumes if platform
@@ -488,6 +488,65 @@ MASTER_PASSWORD_REQUIRED = True
 ENHANCED_COOKIE_PROTECTION = True
 
 ##########################################################################
+# External Authentication Sources
+##########################################################################
+
+# Default setting is internal
+# External Supported Sources: ldap
+# Multiple authentication can be achieved by setting this parameter to
+# ['ldap', 'internal']. pgAdmin will authenticate the user with ldap first,
+# in case of failure internal authentication will be done.
+
+AUTHENTICATION_SOURCES = ['internal']
+
+##########################################################################
+# LDAP Configuration
+##########################################################################
+
+# After ldap authentication, user will be added into the SQLite database
+# automatically, if set to True.
+# Set it to False, if user should not be added automatically,
+# in this case Admin has to add the user manually in the SQLite database.
+
+LDAP_AUTO_CREATE_USER = True
+
+# Connection timeout
+LDAP_CONNECTION_TIMEOUT = 10
+
+# Server connection details (REQUIRED)
+# example: ldap://<ip-address>:<port> or ldap://<hostname>:<port>
+LDAP_SERVER_URI = 'ldap://<ip-address>:<port>'
+
+# BaseDN (REQUIRED)
+# AD example:
+# (&(objectClass=user)(memberof=CN=MYGROUP,CN=Users,dc=example,dc=com))
+# OpenLDAP example: CN=Users,dc=example,dc=com
+LDAP_BASE_DN = '<Base-DN>'
+
+# The LDAP attribute containing user names. In OpenLDAP, this may be 'uid'
+# whilst in AD, 'sAMAccountName' might be appropriate. (REQUIRED)
+LDAP_USERNAME_ATTRIBUTE = '<User-id>'
+
+# Search ldap for further authentication
+LDAP_SEARCH_BASE_DN = '<Search-Base-DN>'
+
+# Filter string for the user search.
+# For OpenLDAP, '(cn=*)' may well be enough.
+# For AD, you might use '(objectClass=user)' (REQUIRED)
+LDAP_SEARCH_FILTER = '(objectclass=*)'
+
+# Search scope for users (one of BASE, LEVEL or SUBTREE)
+LDAP_SEARCH_SCOPE = 'SUBTREE'
+
+# Use TLS? If the URI scheme is ldaps://, this is ignored.
+LDAP_USE_STARTTLS = False
+
+# TLS/SSL certificates. Specify if required, otherwise leave empty
+LDAP_CA_CERT_FILE = ''
+LDAP_CERT_FILE = ''
+LDAP_KEY_FILE = ''
+
+##########################################################################
 # Local config settings
 ##########################################################################
 
@@ -503,14 +562,9 @@ try:
 except ImportError:
     pass
 
-
-# SUPPORT_SSH_TUNNEL can be override in local config file and if that
-# setting is False in local config then we should not check the Python version.
-if (SUPPORT_SSH_TUNNEL is True and
-    ((sys.version_info[0] == 2 and sys.version_info[1] < 7) or
-     (sys.version_info[0] == 3 and sys.version_info[1] < 4))):
-    SUPPORT_SSH_TUNNEL = False
-    ALLOW_SAVE_TUNNEL_PASSWORD = False
+# Override DEFAULT_SERVE value from environment variable.
+if 'PGADMIN_CONFIG_DEFAULT_SERVER' in os.environ:
+    DEFAULT_SERVER = os.environ['PGADMIN_CONFIG_DEFAULT_SERVER']
 
 # Disable USER_INACTIVITY_TIMEOUT when SERVER_MODE=False
 if not SERVER_MODE:

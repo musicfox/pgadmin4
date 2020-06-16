@@ -40,7 +40,6 @@ class RoleModule(CollectionNodeModule):
         """
         if self.show_node:
             yield self.generate_browser_collection_node(sid)
-        pass
 
     @property
     def node_inode(self):
@@ -136,11 +135,11 @@ class RoleView(PGChildNodeView):
                     else:
                         data[key] = val
 
-            if u'rid' not in kwargs or kwargs['rid'] == -1:
-                if u'rolname' not in data:
-                    return precondition_required(
-                        _("Name must be specified.")
-                    )
+            if (u'rid' not in kwargs or kwargs['rid'] == -1) and \
+                    u'rolname' not in data:
+                return precondition_required(
+                    _("Name must be specified.")
+                )
 
             if u'rolvaliduntil' in data:
                 # Make date explicit so that it works with every
@@ -158,6 +157,10 @@ class RoleView(PGChildNodeView):
                     )
 
             if u'rolconnlimit' in data:
+                # If roleconnlimit is empty string then set it to -1
+                if data[u'rolconnlimit'] == '':
+                    data[u'rolconnlimit'] = -1
+
                 if data[u'rolconnlimit'] is not None:
                     data[u'rolconnlimit'] = int(data[u'rolconnlimit'])
                     if type(data[u'rolconnlimit']) != int or \
@@ -272,10 +275,9 @@ rolmembership:{
                             else:
                                 data[u'admins'].append(r[u'role'])
 
-            if self.manager.version >= 90200:
-                if u'seclabels' in data:
-                    if u'rid' not in kwargs or kwargs['rid'] == -1:
-                        msg = _("""
+            if self.manager.version >= 90200 and u'seclabels' in data:
+                if u'rid' not in kwargs or kwargs['rid'] == -1:
+                    msg = _("""
 Security Label must be passed as an array of JSON objects in the following
 format:
 seclabels:[{
@@ -284,16 +286,16 @@ seclabels:[{
     },
     ...
 ]""")
-                        if type(data[u'seclabels']) != list:
-                            return precondition_required(msg)
+                    if type(data[u'seclabels']) != list:
+                        return precondition_required(msg)
 
-                        for s in data[u'seclabels']:
-                            if type(s) != dict or \
-                                    u'provider' not in s or \
-                                    u'label' not in s:
-                                return precondition_required(msg)
-                    else:
-                        msg = _("""
+                    for s in data[u'seclabels']:
+                        if type(s) != dict or \
+                                u'provider' not in s or \
+                                u'label' not in s:
+                            return precondition_required(msg)
+                else:
+                    msg = _("""
 Security Label must be passed as an array of JSON objects in the following
 format:
 seclabels:{
@@ -316,43 +318,43 @@ seclabels:{
         ...
         ]
 """)
-                        seclabels = data[u'seclabels']
-                        if type(seclabels) != dict:
+                    seclabels = data[u'seclabels']
+                    if type(seclabels) != dict:
+                        return precondition_required(msg)
+
+                    if u'added' in seclabels:
+                        new_seclabels = seclabels[u'added']
+
+                        if type(new_seclabels) != list:
                             return precondition_required(msg)
 
-                        if u'added' in seclabels:
-                            new_seclabels = seclabels[u'added']
-
-                            if type(new_seclabels) != list:
+                        for s in new_seclabels:
+                            if type(s) != dict or \
+                                    u'provider' not in s or \
+                                    u'label' not in s:
                                 return precondition_required(msg)
 
-                            for s in new_seclabels:
-                                if type(s) != dict or \
-                                        u'provider' not in s or \
-                                        u'label' not in s:
-                                    return precondition_required(msg)
+                    if u'deleted' in seclabels:
+                        removed_seclabels = seclabels[u'deleted']
 
-                        if u'deleted' in seclabels:
-                            removed_seclabels = seclabels[u'deleted']
+                        if type(removed_seclabels) != list:
+                            return precondition_required(msg)
 
-                            if type(removed_seclabels) != list:
+                        for s in removed_seclabels:
+                            if (type(s) != dict or u'provider' not in s):
                                 return precondition_required(msg)
 
-                            for s in removed_seclabels:
-                                if (type(s) != dict or u'provider' not in s):
-                                    return precondition_required(msg)
+                    if u'changed' in seclabels:
+                        changed_seclabels = seclabels[u'deleted']
 
-                        if u'changed' in seclabels:
-                            changed_seclabels = seclabels[u'deleted']
+                        if type(changed_seclabels) != list:
+                            return precondition_required(msg)
 
-                            if type(changed_seclabels) != list:
+                        for s in changed_seclabels:
+                            if type(s) != dict or \
+                                    u'provider' not in s and \
+                                    u'label' not in s:
                                 return precondition_required(msg)
-
-                            for s in changed_seclabels:
-                                if type(s) != dict or \
-                                        u'provider' not in s and \
-                                        u'label' not in s:
-                                    return precondition_required(msg)
 
             if u'variables' in data:
                 if u'rid' not in kwargs or kwargs['rid'] == -1:
@@ -469,6 +471,11 @@ rolmembership:{
                         _("Connection to the server has been lost.")
                     )
 
+                self.datlastsysoid = \
+                    self.manager.db_info[self.manager.did]['datlastsysoid'] \
+                    if self.manager.db_info is not None and \
+                    self.manager.did in self.manager.db_info else 0
+
                 self.sql_path = 'roles/sql/#{0}#'.format(self.manager.version)
 
                 self.alterKeys = [
@@ -513,11 +520,11 @@ rolmembership:{
                     user = self.manager.user_info
 
                     if not user['is_superuser'] and \
-                            not user['can_create_role']:
-                        if action != 'update' or 'rid' in kwargs:
-                            if kwargs['rid'] != -1:
-                                if user['id'] != kwargs['rid']:
-                                    return forbidden(forbidden_msg)
+                            not user['can_create_role'] and \
+                            (action != 'update' or 'rid' in kwargs) and \
+                            kwargs['rid'] != -1 and \
+                            user['id'] != kwargs['rid']:
+                        return forbidden(forbidden_msg)
 
                 if fetch_name:
                     status, res = self.conn.execute_dict(
@@ -683,6 +690,9 @@ rolmembership:{
         if len(res['rows']) == 0:
             return gone(_("Could not find the role information."))
 
+        res['rows'][0]['is_sys_obj'] = (
+            res['rows'][0]['oid'] <= self.datlastsysoid)
+
         return ajax_response(
             response=res['rows'][0],
             status=200
@@ -751,7 +761,7 @@ rolmembership:{
                 )
             )
 
-        if res is None:
+        if res is None or (len(res) == 0):
             return gone(
                 _("Could not generate reversed engineered query for the role.")
             )

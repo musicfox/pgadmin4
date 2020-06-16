@@ -185,7 +185,7 @@ define('pgadmin.node.trigger', [
           type: 'text', disabled: 'inSchema',
         },{
           id: 'oid', label: gettext('OID'), cell: 'string',
-          type: 'int', disabled: true, mode: ['properties'],
+          type: 'int', mode: ['properties'],
         },{
           id: 'is_enable_trigger', label: gettext('Trigger enabled?'),
           mode: ['edit', 'properties'], group: gettext('Definition'),
@@ -196,10 +196,10 @@ define('pgadmin.node.trigger', [
             return false;
           },
           options: [
-            {label: 'Enable', value: 'O'},
-            {label: 'Enable Replica', value: 'R'},
-            {label: 'Enable Always', value: 'A'},
-            {label: 'Disable', value: 'D'},
+            {label: gettext('Enable'), value: 'O'},
+            {label: gettext('Enable Replica'), value: 'R'},
+            {label: gettext('Enable Always'), value: 'A'},
+            {label: gettext('Disable'), value: 'D'},
           ],
           control: 'select2', select2: { allowClear: false, width: '100%' },
         },{
@@ -248,12 +248,17 @@ define('pgadmin.node.trigger', [
           type: 'switch',
           mode: ['create','edit', 'properties'],
           group: gettext('Definition'),
+          deps: ['tfunction'],
           disabled: function(m) {
             // Disabled if table is a partitioned table.
+            var tfunction = m.get('tfunction');
             if ((_.has(m, 'node_info') && _.has(m.node_info, 'table') &&
               _.has(m.node_info.table, 'is_partitioned') &&
                 m.node_info.table.is_partitioned) ||
-                _.indexOf(Object.keys(m.node_info), 'view') != -1) {
+                _.indexOf(Object.keys(m.node_info), 'view') != -1 ||
+                (m.node_info.server.server_type === 'ppas' &&
+                !_.isUndefined(tfunction) &&
+                 tfunction === 'Inline EDB-SPL')) {
               setTimeout(function(){
                 m.set('is_constraint_trigger', false);
               },10);
